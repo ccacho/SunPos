@@ -1,6 +1,7 @@
 /**
  * ARRenderer.js - Renderiza la posicion del sol sobre la camara
- * Gestiona el overlay AR, flechas de direccion y circulo solar
+ * El circulo del sol es visible SIEMPRE (con opacidad reducida si esta fuera)
+ * Las flechas guian hasta centrarlo
  */
 
 const ARRenderer = (() => {
@@ -53,72 +54,69 @@ const ARRenderer = (() => {
   function render() {
     calibrateCamera();
 
-    // 1. Proyectar sol a pantalla
-    const { x, y, onScreen } = projectSunToScreen();
+    // Proyeccion del sol a coordenadas de pantalla
+    const { x, y, onScreen, azDiff, relAlt } = projectSunToScreen();
     const sobreHorizonte = _sunAltitude > -0.5;
 
-    // DEBUG: console log cada 30 frames para ver valores
-    if (Math.random() < 0.02) {
-      console.log(
-        "AR render:",
-        "sunAz=",
-        _sunAzimuth.toFixed(0),
-        "sunAlt=",
-        _sunAltitude.toFixed(1),
-        "devHead=",
-        _deviceHeading.toFixed(0),
-        "devBeta=",
-        _deviceBeta.toFixed(1),
-        "onScreen=",
-        onScreen,
-        "x=",
-        Math.round(x),
-        "y=",
-        Math.round(y),
-      );
-    }
-
-    // 2. Circulo del sol (solo si esta sobre horizonte y en pantalla)
-    const showSun = onScreen && sobreHorizonte;
-    if (showSun) {
+    // ===== 1. CIRCULO DEL SOL: siempre visible si sobre horizonte =====
+    // Si esta fuera de pantalla, se muestra en el borde mas cercano
+    // con opacidad reducida y una flecha indicadora
+    if (sobreHorizonte) {
       sunOverlay.classList.remove("hidden");
       sunOverlay.style.left = x + "px";
       sunOverlay.style.top = y + "px";
-      const scale = Math.max(0.4, Math.min(1, (_sunAltitude + 10) / 90));
-      sunCircle.style.transform = `scale(${scale})`;
 
-      // Mostrar info detallada: altitud relativa y azimuth relativo
-      const azDiff =
-        ((((_sunAzimuth - _deviceHeading) % 360) + 540) % 360) - 180;
-      const relAlt = _sunAltitude - _deviceBeta;
+      // Escala y opacidad segun distancia al centro
+      const distHor = Math.abs(azDiff);
+      const distVer = Math.abs(relAlt);
+      const distMax = Math.max(
+        distHor / (_cam.hFOV / 2),
+        distVer / (_cam.vFOV / 2),
+      );
+
+      let opacity = 1;
+      let scale = Math.max(0.4, Math.min(1, (_sunAltitude + 10) / 90));
+
+      if (!onScreen) {
+        // Fuera de pantalla: mas pequeno y semitransparente
+        opacity = Math.max(0.15, 1 - distMax * 0.4);
+        scale = scale * Math.max(0.3, 1 - distMax * 0.3);
+        sunCircle.style.opacity = opacity;
+        sunCircle.style.transform = `scale(${scale})`;
+        sunLabel.style.opacity = Math.max(0.3, opacity);
+      } else {
+        sunCircle.style.opacity = 1;
+        sunCircle.style.transform = `scale(${scale})`;
+        sunLabel.style.opacity = 1;
+      }
+
+      // Info en la etiqueta
+      const azDir = azDiff > 0 ? "→" : azDiff < 0 ? "←" : "●";
+      const altDir = relAlt > 0 ? "↑" : relAlt < 0 ? "↓" : "─";
       sunLabel.innerHTML =
         `${Math.round(_sunAltitude)}° alt | ${Math.round(_sunAzimuth)}° az` +
         `<br><span style="font-size:10px;opacity:0.6">` +
-        `rel: ${azDiff > 0 ? "+" : ""}${Math.round(azDiff)}° h, ${relAlt > 0 ? "+" : ""}${Math.round(relAlt)}° v` +
+        `${azDir} ${Math.abs(Math.round(azDiff))}° ${altDir} ${Math.abs(Math.round(relAlt))}°` +
         `</span>`;
     } else {
       sunOverlay.classList.add("hidden");
     }
 
-    // 3. Indicador de direccion (flecha en el horizonte/borde)
-    //    Aparece cuando el sol no es visible: bajo horizonte, muy alto, o fuera de pantalla
-    if (!showSun) {
-      const horX = projectSunToHorizon();
+    // ===== 2. INDICADOR EN EL HORIZONTE =====
+    // Solo cuando el sol esta fuera de pantalla
+    if (!onScreen || !sobreHorizonte) {
+      const horX = projectSunToHorizon(azDiff);
       if (horX !== null) {
         horizonIndicator.classList.remove("hidden");
         horizonIndicator.style.left = horX + "px";
+        horizonIndicator.style.top = _cam.height / 2 - 14 + "px";
 
         if (sobreHorizonte) {
-          // Sol sobre horizonte pero fuera de pantalla: flecha arriba
-          horizonIndicator.style.top = _cam.height / 2 - 14 + "px";
           horizonArrow.textContent = "▲";
-          horizonLabel.textContent = "Sol (" + Math.round(_sunAltitude) + "°)";
+          horizonLabel.textContent = `Sol ${Math.round(_sunAltitude)}°`;
         } else {
-          // Sol bajo horizonte: flecha abajo
-          horizonIndicator.style.top = _cam.height / 2 - 14 + "px";
           horizonArrow.textContent = "▼";
-          horizonLabel.textContent =
-            "Sol " + Math.round(Math.abs(_sunAltitude)) + "° abajo";
+          horizonLabel.textContent = `Sol ${Math.round(Math.abs(_sunAltitude))}° abajo`;
         }
       } else {
         horizonIndicator.classList.add("hidden");
@@ -127,47 +125,40 @@ const ARRenderer = (() => {
       horizonIndicator.classList.add("hidden");
     }
 
-    // 4. Flechas direccionales centrales
-    const needsArrows = !showSun;
+    // ===== 3. FLECHAS DIRECCIONALES =====
+    // Aparecen cuando el sol no esta centrado (umbral 8°)
+    const dir = getDirectionFromDevice(azDiff, relAlt);
+    const needsArrows = dir.up || dir.down || dir.left || dir.right;
     if (needsArrows) {
       searchIndicator.classList.remove("hidden");
-      const dir = getDirectionFromDevice();
       showArrows(dir);
-      searchText.textContent = buildSearchText(sobreHorizonte, onScreen);
+      searchText.textContent = sobreHorizonte
+        ? `Sigue las flechas para centrar el sol`
+        : `Sol ${Math.round(Math.abs(_sunAltitude))}° bajo el horizonte`;
     } else {
       searchIndicator.classList.add("hidden");
     }
 
-    // 5. Brujula
+    // ===== 4. BRUJULA =====
     compassNeedle.style.transform = `rotate(${-_deviceHeading}deg)`;
   }
 
   /**
    * Proyecta la direccion del sol sobre la linea de horizonte
-   * Devuelve la coordenada X en pantalla, o null si esta detras
    */
-  function projectSunToHorizon() {
-    const azDiff = ((((_sunAzimuth - _deviceHeading) % 360) + 540) % 360) - 180;
-
-    // Si el sol esta detras (> 100° cualquier lado), no mostrar indicador
+  function projectSunToHorizon(azDiff) {
     if (Math.abs(azDiff) > 100) return null;
-
     const xRatio = azDiff / _cam.hFOV;
     let x = _cam.width / 2 + xRatio * _cam.width;
     x = Math.max(10, Math.min(_cam.width - 10, x));
     return x;
   }
 
-  function buildSearchText(sobreHorizonte, onScreen) {
-    if (!sobreHorizonte) {
-      return `Sol ${Math.round(Math.abs(_sunAltitude))}° bajo el horizonte. Sigue las flechas.`;
-    }
-    if (sobreHorizonte && !onScreen) {
-      return `Gira el movil siguiendo las flechas para ver el sol`;
-    }
-    return `Mueve el dispositivo para encontrar el sol`;
-  }
-
+  /**
+   * Proyecta el sol a coordenadas de pantalla.
+   * Si esta fuera, lo clampa al borde mas cercano.
+   * Devuelve ademas azDiff y relAlt para los calculos.
+   */
   function projectSunToScreen() {
     const azDiff = ((((_sunAzimuth - _deviceHeading) % 360) + 540) % 360) - 180;
     const relAlt = _sunAltitude - _deviceBeta;
@@ -178,27 +169,25 @@ const ARRenderer = (() => {
     let x = _cam.width / 2 + xRatio * _cam.width;
     let y = _cam.height / 2 - yRatio * _cam.height;
 
-    const margin = 100;
-    const onScreen =
-      x >= -margin &&
-      x <= _cam.width + margin &&
-      y >= -margin &&
-      y <= _cam.height + margin;
+    const margin = 0;
+    const onScreen = x >= 0 && x <= _cam.width && y >= 0 && y <= _cam.height;
 
-    x = Math.max(-margin, Math.min(_cam.width + margin, x));
-    y = Math.max(-margin, Math.min(_cam.height + margin, y));
+    // Clampear a los bordes de la pantalla para que el circulo siempre sea visible
+    x = Math.max(20, Math.min(_cam.width - 20, x));
+    y = Math.max(20, Math.min(_cam.height - 20, y));
 
-    return { x, y, onScreen };
+    return { x, y, onScreen, azDiff, relAlt };
   }
 
-  function getDirectionFromDevice() {
-    const azDiff = ((((_sunAzimuth - _deviceHeading) % 360) + 540) % 360) - 180;
-    const altDiff = _sunAltitude - _deviceBeta;
-    const threshold = 10;
-
+  /**
+   * Determina direccion de las flechas.
+   * Umbral bajo (8°) para que sean sensibles.
+   */
+  function getDirectionFromDevice(azDiff, relAlt) {
+    const threshold = 8;
     return {
-      up: altDiff > threshold,
-      down: altDiff < -threshold,
+      up: relAlt > threshold,
+      down: relAlt < -threshold,
       left: azDiff < -threshold,
       right: azDiff > threshold,
     };
