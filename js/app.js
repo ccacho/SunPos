@@ -36,10 +36,10 @@ const App = (() => {
     cameraReady: false,
     animFrameId: null,
     sensorsStarted: false,
+    demoRelAltOffset: 0,
     isDemoMode: false,
     // Orientacion simulada para modo demo
     demoHeading: 0, // 0-360, hacia donde apunta el dispositivo
-    demoBeta: 0, // inclinacion vertical
     demoDragging: null, // null, 'azimuth', 'elevation'
   };
 
@@ -316,17 +316,8 @@ const App = (() => {
       sunInfo.textContent = `Sol AHORA: ${pos.altitude.toFixed(1)}° alt, ${pos.azimuth.toFixed(1)}° (${dirStr}) | ${times.sunrise}-${times.sunset}`;
 
       _state.demoHeading = pos.azimuth;
-      _state.demoBeta = Math.max(-15, Math.min(85, pos.altitude));
-
-      const azRatio = _state.demoHeading / 360;
-      const elRatio = (_state.demoBeta + 30) / 120;
-      const azThumb = document.querySelector("#slider-azimuth .thumb");
-      const elThumb = document.querySelector("#slider-elevation .thumb");
-      if (azThumb) azThumb.style.left = `calc(${azRatio * 100}% - 12px)`;
-      if (elThumb) elThumb.style.left = `calc(${elRatio * 100}% - 12px)`;
-
-      updateTouchDisplay();
-      sensorStatus.textContent = `Ubicacion: ${fuente} - Modo demo`;
+      _state.demoRelAltOffset = 0; // sol centrado verticalmente
+      _state.demoHeading = pos.azimuth;      sensorStatus.textContent = `Ubicacion: ${fuente} - Modo demo`;
       console.log("Demo: sol =", pos.altitude, pos.azimuth);
     });
   }
@@ -345,11 +336,11 @@ const App = (() => {
     tc.id = "touch-control";
     tc.className = "visible";
     tc.innerHTML = `
-      <label>Azimuth (gira el dispositivo)</label>
+      <label>Giro horizontal (← izq  /  der →)</label>
       <div id="slider-azimuth" class="touch-slider">
         <div class="thumb" style="left: calc(50% - 12px)"></div>
       </div>
-      <label>Elevacion (inclina arriba/abajo)</label>
+      <label>Sol en pantalla (▼ abajo  /  ▲ arriba)</label>
       <div id="slider-elevation" class="touch-slider">
         <div class="thumb" style="left: calc(50% - 12px)"></div>
       </div>
@@ -363,7 +354,7 @@ const App = (() => {
     helpText.style.cssText =
       "font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px";
     helpText.textContent =
-      "Desliza para girar el movil. El sol aparece cuando apuntas hacia el.";
+      "Mueve los sliders. El sol centrado = lo estas apuntando.";
     tc.appendChild(helpText);
 
     // Slider azimuth
@@ -372,9 +363,9 @@ const App = (() => {
       updateTouchDisplay();
     });
 
-    // Slider elevacion: rango -30° a +90° (total 120°)
+    // Slider elevacion: offset vertical (-60 a +60), centro = sol visible
     setupSlider("slider-elevation", (ratio) => {
-      _state.demoBeta = ratio * 120 - 30;
+      _state.demoRelAltOffset = 60 - ratio * 120;
       updateTouchDisplay();
     });
   }
@@ -447,14 +438,14 @@ const App = (() => {
   function updateTouchDisplay() {
     const el = document.getElementById("touch-value");
     if (el) {
-      el.textContent = `${Math.round(_state.demoHeading)}° az | ${Math.round(_state.demoBeta)}° el`;
+      el.textContent = `Az:${Math.round(_state.demoHeading)}° Off:${Math.round(_state.demoRelAltOffset||0)}°`;
     }
-    deviceOrient.textContent = `Orientacion: ${Math.round(_state.demoHeading)}° | beta: ${Math.round(_state.demoBeta)}°`;
+    deviceOrient.textContent = `Azimuth: ${Math.round(_state.demoHeading)}° | OffsetV:${Math.round(_state.demoRelAltOffset||0)}°`;
 
     // Actualizar etiqueta del slider de elevacion para mostrar el rango real
     const elLabel = document.querySelector("#touch-control label:nth-child(3)");
     if (elLabel) {
-      elLabel.textContent = `Elevacion (beta: ${Math.round(_state.demoBeta)}°)`;
+      elLabel.textContent = `Sol en pantalla (offset: ${Math.round(_state.demoRelAltOffset||0)}°)`;
     }
   }
 
@@ -509,10 +500,10 @@ const App = (() => {
       // En modo demo, actualizar los sliders
       if (_state.isDemoMode) {
         _state.demoHeading = pos.azimuth;
-        _state.demoBeta = Math.max(-15, Math.min(85, pos.altitude));
+        _state.demoRelAltOffset = 0;
 
         const azRatio = _state.demoHeading / 360;
-        const elRatio = (_state.demoBeta + 30) / 120;
+        const elMid = 0.5; // centro
         const azThumb = document.querySelector("#slider-azimuth .thumb");
         const elThumb = document.querySelector("#slider-elevation .thumb");
         if (azThumb) azThumb.style.left = `calc(${azRatio * 100}% - 12px)`;
@@ -628,7 +619,7 @@ const App = (() => {
     if (_state.isDemoMode) {
       // Usar valores del modo demo
       heading = _state.demoHeading;
-      beta = _state.demoBeta;
+      beta = (_state._targetSunPos ? _state._targetSunPos.altitude : 0) + (_state.demoRelAltOffset || 0);
     } else {
       // Usar sensores reales
       const sensorState = Sensors.getState();

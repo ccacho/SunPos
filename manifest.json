@@ -4,7 +4,7 @@
   "description": "Visualiza la posicion del sol en realidad aumentada",
   "start_url": "/",
   "scope": "/",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "any",
   "background_color": "#0a0a1a",
   "theme_color": "#ffd700",
@@ -25,7 +25,5 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ],
-  "screenshots": [],
-  "features": ["Cross Platform", "Camera", "Geolocation", "Device Orientation"]
+  ]
 }
