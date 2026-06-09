@@ -1,0 +1,696 @@
+/**
+ * app.js - Aplicacion principal SunPos AR
+ * Orquesta camara, sensores, calculo solar y renderizado AR
+ * Soporta modo prueba sin camara con controles tactiles
+ */
+
+const App = (() => {
+  const $ = (id) => document.getElementById(id);
+  const cameraFeed = $("camera-feed");
+  const dateInput = $("date-input");
+  const timeInput = $("time-input");
+  const latInput = $("lat-input");
+  const lonInput = $("lon-input");
+  const locationMethod = $("location-method");
+  const manualCoords = $("manual-coords");
+  const locationInfo = $("location-info");
+  const sunInfo = $("sun-info");
+  const deviceOrient = $("device-orientation");
+  const sensorStatus = $("sensor-status");
+  const btnLocate = $("btn-locate");
+  const btnFollow = $("btn-follow");
+  const btnStart = $("btn-start");
+  const btnDemo = $("btn-demo");
+  const permissionOverlay = $("permission-overlay");
+  const controlPanel = $("control-panel");
+  const panelHandle = $("panel-handle");
+  const gridBg = $("grid-bg");
+  const horizonLine = $("horizon-line");
+
+  let _state = {
+    latitude: 40.4168,
+    longitude: -3.7038,
+    followMode: false,
+    locateMode: false,
+    stream: null,
+    cameraReady: false,
+    animFrameId: null,
+    sensorsStarted: false,
+    isDemoMode: false,
+    // Orientacion simulada para modo demo
+    demoHeading: 0, // 0-360, hacia donde apunta el dispositivo
+    demoBeta: 0, // inclinacion vertical
+    demoDragging: null, // null, 'azimuth', 'elevation'
+  };
+
+  function init() {
+    const now = new Date();
+    dateInput.value = now.toISOString().split("T")[0];
+    timeInput.value = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    // Precargar coordenadas manuales con Madrid
+    latInput.value = "40.4168";
+    lonInput.value = "-3.7038";
+
+    // Eventos UI
+    locationMethod.addEventListener("change", () => {
+      manualCoords.classList.toggle(
+        "hidden",
+        locationMethod.value !== "manual",
+      );
+    });
+
+    panelHandle.addEventListener("click", () => {
+      controlPanel.classList.toggle("open");
+    });
+
+    btnStart.addEventListener("click", startWithCamera);
+    btnDemo.addEventListener("click", startDemo);
+    btnLocate.addEventListener("click", locateSun);
+    btnFollow.addEventListener("click", toggleFollow);
+
+    // Mostrar overlay de inicio
+    permissionOverlay.classList.remove("hidden");
+
+    // Arrancar game loop
+    gameLoop();
+  }
+
+  // ===== INICIO CON CAMARA =====
+  async function startWithCamera() {
+    btnStart.disabled = true;
+    btnStart.textContent = "Iniciando...";
+    btnDemo.disabled = true;
+
+    // 1. Permiso orientacion iOS
+    try {
+      if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+      ) {
+        await DeviceOrientationEvent.requestPermission();
+      }
+    } catch (e) {
+      console.warn("DeviceOrientation permission:", e);
+    }
+
+    // 2. GPS
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          _state.latitude = pos.coords.latitude;
+          _state.longitude = pos.coords.longitude;
+          locationInfo.textContent =
+            `Ubicacion: ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}` +
+            (pos.coords.accuracy
+              ? ` (±${Math.round(pos.coords.accuracy)}m)`
+              : "");
+          sensorStatus.textContent = "GPS OK";
+        },
+        (err) => {
+          console.warn("GPS error:", err.message);
+          fallbackLocation();
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 },
+      );
+    } else {
+      fallbackLocation();
+    }
+
+    // 3. Camara
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+      cameraFeed.srcObject = stream;
+      try {
+        await cameraFeed.play();
+      } catch (e) {
+        /* ok */
+      }
+      _state.stream = stream;
+      _state.cameraReady = true;
+      console.log("Camera OK");
+    } catch (camErr) {
+      console.error("Camera error:", camErr.name, camErr.message);
+      let msg = "Error de camara:\n\n" + camErr.name + ": " + camErr.message;
+      if (camErr.name === "NotAllowedError") {
+        msg += "\n\nAcepta el permiso de camara en el navegador.";
+      }
+      alert(msg);
+    }
+
+    // 4. Sensores orientacion
+    Sensors.start();
+    _state.sensorsStarted = true;
+    Sensors.on("location", onLocationUpdate);
+    Sensors.on("orientation", onOrientationUpdate);
+
+    // 5. UI final
+    permissionOverlay.classList.add("hidden");
+    controlPanel.classList.add("open");
+    sensorStatus.textContent =
+      (_state.cameraReady ? "Camara OK | " : "Camara NO | ") + "Sensores OK";
+
+    btnStart.disabled = false;
+    btnStart.textContent = "Comenzar con camara";
+  }
+
+  // ===== OBTENER UBICACION =====
+
+  /**
+   * Obtiene ubicacion: intenta GPS, luego IP, luego Madrid como fallback
+   * @param {function} callback - funcion a llamar con (lat, lon, fuente)
+   */
+  function obtenerUbicacion(callback) {
+    if ("geolocation" in navigator) {
+      locationInfo.textContent = "Buscando GPS... (permite la ubicacion)";
+      sensorStatus.textContent = "Esperando GPS...";
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          _state.latitude = lat;
+          _state.longitude = lon;
+          const precision = pos.coords.accuracy
+            ? ` ±${Math.round(pos.coords.accuracy)}m`
+            : "";
+          locationInfo.textContent = `Ubicacion: ${lat.toFixed(4)}, ${lon.toFixed(4)} (GPS${precision})`;
+          sensorStatus.textContent = "GPS OK";
+          if (callback) callback(lat, lon, "GPS");
+        },
+        (err) => {
+          console.warn("GPS error:", err.code, err.message);
+          let msg = "";
+          switch (err.code) {
+            case err.PERMISSION_DENIED:
+              msg =
+                "Permiso de ubicacion denegado. Permitelo en el navegador o usa coordenadas manuales.";
+              break;
+            case err.POSITION_UNAVAILABLE:
+              msg = "GPS no disponible. " + err.message;
+              break;
+            case err.TIMEOUT:
+              msg = "GPS tardando mucho. Probando ubicacion por IP...";
+              break;
+          }
+          locationInfo.textContent = msg;
+          obtenerUbicacionPorIP(callback);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+      );
+    } else {
+      locationInfo.textContent =
+        "Este dispositivo no tiene GPS. Probando ubicacion por IP...";
+      obtenerUbicacionPorIP(callback);
+    }
+  }
+
+  /**
+   * Obtiene ubicacion aproximada por IP
+   */
+  function obtenerUbicacionPorIP(callback) {
+    // Probar varios APIs de geolocalizacion por IP
+    const apis = [
+      "https://ip-api.com/json/?fields=lat,lon,city,country",
+      "https://ipapi.co/json/",
+    ];
+
+    function probarAPI(index) {
+      if (index >= apis.length) {
+        fallbackMadrid(callback);
+        return;
+      }
+
+      fetch(apis[index], { mode: "cors" })
+        .then((res) => res.json())
+        .then((data) => {
+          let lat, lon, ciudad;
+          if (data.lat !== undefined && data.lon !== undefined) {
+            // ip-api.com
+            lat = data.lat;
+            lon = data.lon;
+            ciudad = data.city || "";
+          } else if (
+            data.latitude !== undefined &&
+            data.longitude !== undefined
+          ) {
+            // ipapi.co
+            lat = data.latitude;
+            lon = data.longitude;
+            ciudad = data.city || "";
+          } else {
+            throw new Error("No coordinates in response");
+          }
+
+          _state.latitude = lat;
+          _state.longitude = lon;
+          locationInfo.textContent = `Ubicacion estimada: ${lat.toFixed(4)}, ${lon.toFixed(4)}${ciudad ? " (" + ciudad + ")" : ""}`;
+          sensorStatus.textContent = "Ubicacion por IP";
+          if (callback) callback(lat, lon, "IP");
+        })
+        .catch(() => {
+          probarAPI(index + 1);
+        });
+    }
+
+    probarAPI(0);
+  }
+
+  function fallbackMadrid(callback) {
+    const lat = 40.4168;
+    const lon = -3.7038;
+    _state.latitude = lat;
+    _state.longitude = lon;
+    locationInfo.textContent =
+      "No se pudo obtener ubicacion. Usando Madrid como referencia. Cambia a coordenadas manuales.";
+    sensorStatus.textContent = "Ubicacion: Madrid (fallback)";
+    if (callback) callback(lat, lon, "fallback");
+  }
+
+  // ===== MODO DEMO SIN CAMARA =====
+  function startDemo() {
+    _state.isDemoMode = true;
+
+    gridBg.classList.add("visible");
+    horizonLine.classList.add("visible");
+    cameraFeed.style.display = "none";
+
+    Sensors.start();
+    _state.sensorsStarted = true;
+    Sensors.on("location", onLocationUpdate);
+    Sensors.on("orientation", onOrientationUpdate);
+
+    permissionOverlay.classList.add("hidden");
+    controlPanel.classList.add("open");
+
+    // Crear los sliders (aun sin posicionar)
+    createTouchControls();
+
+    // Obtener ubicacion real y calcular sol
+    obtenerUbicacion((lat, lon, fuente) => {
+      const now = new Date();
+      dateInput.value = now.toISOString().split("T")[0];
+      timeInput.value = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+      const pos = SunCalc.getPosition(now, lat, lon);
+      const times = SunCalc.getTimes(now, lat, lon);
+      _state._targetSunPos = pos;
+      _state._targetDate = now;
+
+      const dirStr = azimuthToText(pos.azimuth);
+      sunInfo.textContent = `Sol AHORA: ${pos.altitude.toFixed(1)}° alt, ${pos.azimuth.toFixed(1)}° (${dirStr}) | ${times.sunrise}-${times.sunset}`;
+
+      _state.demoHeading = pos.azimuth;
+      _state.demoBeta = Math.max(-15, Math.min(85, pos.altitude));
+
+      const azRatio = _state.demoHeading / 360;
+      const elRatio = (_state.demoBeta + 30) / 120;
+      const azThumb = document.querySelector("#slider-azimuth .thumb");
+      const elThumb = document.querySelector("#slider-elevation .thumb");
+      if (azThumb) azThumb.style.left = `calc(${azRatio * 100}% - 12px)`;
+      if (elThumb) elThumb.style.left = `calc(${elRatio * 100}% - 12px)`;
+
+      updateTouchDisplay();
+      sensorStatus.textContent = `Ubicacion: ${fuente} - Modo demo`;
+      console.log("Demo: sol =", pos.altitude, pos.azimuth);
+    });
+  }
+
+  function createTouchControls() {
+    const container = document.getElementById("camera-container");
+
+    // Crear control táctil si no existe
+    let tc = document.getElementById("touch-control");
+    if (tc) {
+      tc.classList.add("visible");
+      return;
+    }
+
+    tc = document.createElement("div");
+    tc.id = "touch-control";
+    tc.className = "visible";
+    tc.innerHTML = `
+      <label>Azimuth (gira el dispositivo)</label>
+      <div id="slider-azimuth" class="touch-slider">
+        <div class="thumb" style="left: calc(50% - 12px)"></div>
+      </div>
+      <label>Elevacion (inclina arriba/abajo)</label>
+      <div id="slider-elevation" class="touch-slider">
+        <div class="thumb" style="left: calc(50% - 12px)"></div>
+      </div>
+      <div id="touch-value">0°</div>
+    `;
+    container.appendChild(tc);
+
+    // Texto explicativo sobre los sliders
+    const helpText = document.createElement("p");
+    helpText.id = "slider-help";
+    helpText.style.cssText =
+      "font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px";
+    helpText.textContent =
+      "Desliza para girar el movil. El sol aparece cuando apuntas hacia el.";
+    tc.appendChild(helpText);
+
+    // Slider azimuth
+    setupSlider("slider-azimuth", (ratio) => {
+      _state.demoHeading = ratio * 360;
+      updateTouchDisplay();
+    });
+
+    // Slider elevacion: rango -30° a +90° (total 120°)
+    setupSlider("slider-elevation", (ratio) => {
+      _state.demoBeta = ratio * 120 - 30;
+      updateTouchDisplay();
+    });
+  }
+
+  function setupSlider(sliderId, onChange) {
+    const slider = document.getElementById(sliderId);
+    if (!slider) return;
+    const thumb = slider.querySelector(".thumb");
+
+    function getRatio(clientX) {
+      const rect = slider.getBoundingClientRect();
+      let ratio = (clientX - rect.left) / rect.width;
+      ratio = Math.max(0, Math.min(1, ratio));
+      return ratio;
+    }
+
+    function onStart(clientX) {
+      const ratio = getRatio(clientX);
+      if (thumb) thumb.style.left = `calc(${ratio * 100}% - 12px)`;
+      onChange(ratio);
+    }
+
+    function onMove(clientX) {
+      const ratio = getRatio(clientX);
+      if (thumb) thumb.style.left = `calc(${ratio * 100}% - 12px)`;
+      onChange(ratio);
+    }
+
+    // Mouse
+    slider.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      onStart(e.clientX);
+      const onMouseMove = (ev) => {
+        ev.preventDefault();
+        onMove(ev.clientX);
+      };
+      const onMouseUp = () => {
+        document.removeEventListener("mousemove", onMouseMove);
+      };
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp, { once: true });
+    });
+
+    // Touch
+    slider.addEventListener(
+      "touchstart",
+      (e) => {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        onStart(touch.clientX);
+      },
+      { passive: false },
+    );
+
+    slider.addEventListener(
+      "touchmove",
+      (e) => {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        onMove(touch.clientX);
+      },
+      { passive: false },
+    );
+
+    slider.addEventListener("touchend", (e) => {
+      // No hacer nada, la posicion se mantiene
+    });
+  }
+
+  function updateTouchDisplay() {
+    const el = document.getElementById("touch-value");
+    if (el) {
+      el.textContent = `${Math.round(_state.demoHeading)}° az | ${Math.round(_state.demoBeta)}° el`;
+    }
+    deviceOrient.textContent = `Orientacion: ${Math.round(_state.demoHeading)}° | beta: ${Math.round(_state.demoBeta)}°`;
+
+    // Actualizar etiqueta del slider de elevacion para mostrar el rango real
+    const elLabel = document.querySelector("#touch-control label:nth-child(3)");
+    if (elLabel) {
+      elLabel.textContent = `Elevacion (beta: ${Math.round(_state.demoBeta)}°)`;
+    }
+  }
+
+  // ===== UBICACION =====
+  function fallbackLocation() {
+    locationInfo.textContent =
+      "Usando ubicacion por defecto (Madrid). Introduce coordenadas manuales o activa GPS.";
+    _state.latitude = 40.4168;
+    _state.longitude = -3.7038;
+  }
+
+  // ===== LOCALIZAR SOL =====
+  function locateSun() {
+    _state.locateMode = true;
+    _state.followMode = false;
+    btnFollow.classList.remove("active");
+    btnLocate.disabled = true;
+    btnLocate.textContent = "Obteniendo ubicacion...";
+
+    const dateStr = dateInput.value;
+    const timeStr = timeInput.value;
+    if (!dateStr || !timeStr) {
+      alert("Selecciona fecha y hora");
+      btnLocate.disabled = false;
+      btnLocate.textContent = "🔍 Localizar Sol";
+      return;
+    }
+
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const [hour, minute] = timeStr.split(":").map(Number);
+    const targetDate = new Date(year, month - 1, day, hour, minute);
+
+    if (isNaN(targetDate.getTime())) {
+      alert("Fecha u hora invalida");
+      btnLocate.disabled = false;
+      btnLocate.textContent = "🔍 Localizar Sol";
+      return;
+    }
+
+    // Funcion interna que realiza el calculo con las coordenadas ya resueltas
+    const calcular = (lat, lon, fuente) => {
+      _state.latitude = lat;
+      _state.longitude = lon;
+
+      const pos = SunCalc.getPosition(targetDate, lat, lon);
+      const times = SunCalc.getTimes(targetDate, lat, lon);
+
+      const dirStr = azimuthToText(pos.azimuth);
+      sunInfo.textContent = `Sol: ${pos.altitude.toFixed(1)}° alt, ${pos.azimuth.toFixed(1)}° (${dirStr})`;
+      locationInfo.textContent = `Ubicacion: ${lat.toFixed(4)}, ${lon.toFixed(4)} (${fuente}) | Sol: ${times.sunrise}-${times.sunset}`;
+
+      // En modo demo, actualizar los sliders
+      if (_state.isDemoMode) {
+        _state.demoHeading = pos.azimuth;
+        _state.demoBeta = Math.max(-15, Math.min(85, pos.altitude));
+
+        const azRatio = _state.demoHeading / 360;
+        const elRatio = (_state.demoBeta + 30) / 120;
+        const azThumb = document.querySelector("#slider-azimuth .thumb");
+        const elThumb = document.querySelector("#slider-elevation .thumb");
+        if (azThumb) azThumb.style.left = `calc(${azRatio * 100}% - 12px)`;
+        if (elThumb) elThumb.style.left = `calc(${elRatio * 100}% - 12px)`;
+        updateTouchDisplay();
+      }
+
+      btnLocate.disabled = false;
+      btnLocate.textContent = "🔍 Localizar Sol";
+
+      _state._targetSunPos = pos;
+      _state._targetDate = targetDate;
+    };
+
+    // Resolver coordenadas
+    if (locationMethod.value === "manual") {
+      let lat = parseFloat(latInput.value);
+      let lon = parseFloat(lonInput.value);
+      if (
+        isNaN(lat) ||
+        isNaN(lon) ||
+        lat < -90 ||
+        lat > 90 ||
+        lon < -180 ||
+        lon > 180
+      ) {
+        alert("Coordenadas invalidas. Latitud: -90 a 90, Longitud: -180 a 180");
+        btnLocate.disabled = false;
+        btnLocate.textContent = "🔍 Localizar Sol";
+        return;
+      }
+      calcular(lat, lon, "manual");
+    } else {
+      // Modo GPS: intentar obtener ubicacion fresca
+      btnLocate.textContent = "Esperando GPS...";
+
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            calcular(pos.coords.latitude, pos.coords.longitude, "GPS");
+          },
+          (err) => {
+            // GPS falla: usar ultima conocida
+            console.warn("GPS error en locateSun:", err.message);
+            const lat = _state.latitude;
+            const lon = _state.longitude;
+            if (lat && lon) {
+              calcular(lat, lon, "ultima conocida");
+            } else {
+              alert(
+                "No hay ubicacion disponible. Activa el GPS o usa coordenadas manuales.",
+              );
+              btnLocate.disabled = false;
+              btnLocate.textContent = "🔍 Localizar Sol";
+            }
+          },
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 },
+        );
+      } else {
+        const lat = _state.latitude;
+        const lon = _state.longitude;
+        if (lat && lon) {
+          calcular(lat, lon, "ultima conocida");
+        } else {
+          alert(
+            "GPS no disponible en este dispositivo. Usa coordenadas manuales.",
+          );
+          btnLocate.disabled = false;
+          btnLocate.textContent = "🔍 Localizar Sol";
+        }
+      }
+    }
+  }
+
+  function toggleFollow() {
+    _state.followMode = !_state.followMode;
+    btnFollow.classList.toggle("active", _state.followMode);
+
+    if (_state.followMode) {
+      btnFollow.textContent = "⏹ Detener";
+      sunInfo.textContent = "Siguiendo el sol en tiempo real...";
+    } else {
+      btnFollow.textContent = "🎯 Seguir tiempo real";
+      sunInfo.textContent = "Seguimiento detenido";
+    }
+  }
+
+  function onLocationUpdate(state) {
+    if (state.latitude !== null && state.longitude !== null) {
+      _state.latitude = state.latitude;
+      _state.longitude = state.longitude;
+      locationInfo.textContent =
+        `Ubicacion: ${state.latitude.toFixed(4)}, ${state.longitude.toFixed(4)}` +
+        (state.accuracy ? ` (±${Math.round(state.accuracy)}m)` : "");
+    }
+  }
+
+  function onOrientationUpdate(state) {
+    // En modo demo, ignoramos los sensores reales
+    if (_state.isDemoMode) return;
+
+    deviceOrient.textContent = `Orientacion: ${Math.round(state.alpha)}° | beta: ${Math.round(state.beta)}° | gamma: ${Math.round(state.gamma)}°`;
+
+    if (state.alpha !== 0 || state.beta !== 0 || state.gamma !== 0) {
+      sensorStatus.textContent =
+        (_state.cameraReady ? "Camara OK | " : "Camara NO | ") + "Sensores OK";
+    }
+  }
+
+  function gameLoop() {
+    let heading, beta;
+
+    if (_state.isDemoMode) {
+      // Usar valores del modo demo
+      heading = _state.demoHeading;
+      beta = _state.demoBeta;
+    } else {
+      // Usar sensores reales
+      const sensorState = Sensors.getState();
+      heading = Sensors.getTrueHeading();
+      beta = sensorState.beta;
+    }
+
+    let pos;
+
+    if (_state.followMode) {
+      const targetDate = new Date();
+      let lat = _state.latitude || 40.4168;
+      let lon = _state.longitude || -3.7038;
+
+      pos = SunCalc.getPosition(targetDate, lat, lon);
+      _state._targetSunPos = pos;
+
+      const times = SunCalc.getTimes(targetDate, lat, lon);
+      const dirStr = azimuthToText(pos.azimuth);
+      sunInfo.textContent =
+        `Sol ahora: ${pos.altitude.toFixed(1)}° alt, ${pos.azimuth.toFixed(1)}° (${dirStr})` +
+        ` | ${times.sunrise}-${times.sunset}`;
+    } else if (_state._targetSunPos) {
+      pos = _state._targetSunPos;
+    } else {
+      pos = { azimuth: 0, altitude: -10 };
+    }
+
+    ARRenderer.update(pos.azimuth, pos.altitude, heading, beta);
+
+    _state.animFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  function azimuthToText(az) {
+    const dirs = [
+      "N",
+      "NNE",
+      "NE",
+      "ENE",
+      "E",
+      "ESE",
+      "SE",
+      "SSE",
+      "S",
+      "SSW",
+      "SW",
+      "WSW",
+      "W",
+      "WNW",
+      "NW",
+      "NNW",
+    ];
+    return dirs[Math.round(az / 22.5) % 16];
+  }
+
+  function stop() {
+    if (_state.stream) {
+      _state.stream.getTracks().forEach((t) => t.stop());
+    }
+    if (_state.animFrameId) {
+      cancelAnimationFrame(_state.animFrameId);
+    }
+    if (_state.sensorsStarted) {
+      Sensors.stop();
+    }
+    ARRenderer.reset();
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+  window.addEventListener("beforeunload", stop);
+
+  return { init, stop, locateSun, toggleFollow };
+})();

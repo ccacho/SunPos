@@ -1,0 +1,653 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0a0a1a;
+    color: #fff;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    position: fixed;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Camera */
+#camera-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+}
+
+#camera-feed {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 100%;
+    min-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: cover;
+}
+
+#ar-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* Fondo de cielo para modo demo */
+#grid-bg {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+    background: linear-gradient(
+        to bottom,
+        #0b0b2b 0%,
+        #1a1a4e 30%,
+        #4a6fa5 60%,
+        #87ceeb 80%,
+        #b0d4f1 100%
+    );
+}
+
+#grid-bg.visible {
+    display: block;
+}
+
+#grid-bg::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background:
+        repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.03) 0px,
+            rgba(255, 255, 255, 0.03) 1px,
+            transparent 1px,
+            transparent 40px
+        ),
+        repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.03) 0px,
+            rgba(255, 255, 255, 0.03) 1px,
+            transparent 1px,
+            transparent 40px
+        );
+}
+
+#horizon-line {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+#horizon-line.visible {
+    display: block;
+}
+
+#horizon-line::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(
+        to right,
+        transparent,
+        rgba(255, 200, 100, 0.6) 20%,
+        rgba(255, 200, 100, 0.8) 50%,
+        rgba(255, 200, 100, 0.6) 80%,
+        transparent
+    );
+    box-shadow: 0 0 12px rgba(255, 200, 100, 0.4);
+}
+
+/* Indicador de direccion del sol en el horizonte */
+#horizon-indicator {
+    display: none;
+    position: absolute;
+    z-index: 4;
+    pointer-events: none;
+    text-align: center;
+    transform: translateX(-50%);
+    transition: left 0.15s ease;
+}
+
+#horizon-indicator:not(.hidden) {
+    display: block;
+}
+
+#horizon-arrow {
+    font-size: 28px;
+    color: #ffd700;
+    text-shadow: 0 0 20px rgba(255, 200, 0, 0.8);
+    animation: bounce-down 0.8s infinite;
+    line-height: 1;
+}
+
+#horizon-label {
+    font-size: 10px;
+    color: rgba(255, 215, 0, 0.8);
+    background: rgba(0, 0, 0, 0.4);
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+    margin-top: -2px;
+}
+
+/* Control tactil de orientacion (modo demo) */
+#touch-control {
+    display: none;
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 16px;
+    padding: 12px 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    text-align: center;
+    touch-action: none;
+}
+
+#touch-control.visible {
+    display: block;
+}
+
+#touch-control label {
+    display: block;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.touch-slider {
+    width: 180px;
+    height: 32px;
+    margin: 4px 0;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    position: relative;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.touch-slider .thumb {
+    position: absolute;
+    top: 4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ffd700, #ff8c00);
+    box-shadow: 0 0 10px rgba(255, 200, 0, 0.4);
+    pointer-events: none;
+    transition: none;
+}
+
+#touch-value {
+    font-size: 13px;
+    color: #ffd700;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+/* Sun overlay */
+#sun-overlay {
+    position: absolute;
+    pointer-events: none;
+    z-index: 5;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.3s ease;
+}
+
+#sun-circle {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: radial-gradient(
+        circle,
+        rgba(255, 220, 50, 0.9),
+        rgba(255, 180, 0, 0.4)
+    );
+    box-shadow:
+        0 0 40px rgba(255, 200, 0, 0.6),
+        0 0 80px rgba(255, 150, 0, 0.3);
+    animation: pulse 2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 0.9;
+    }
+    50% {
+        transform: scale(1.1);
+        opacity: 1;
+    }
+}
+
+#sun-label {
+    text-align: center;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 4px 8px;
+    border-radius: 4px;
+    white-space: normal;
+    line-height: 1.3;
+}
+
+/* Search indicator arrows */
+#search-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 6;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.search-arrows {
+    position: relative;
+    width: 200px;
+    height: 200px;
+}
+
+.arrow {
+    position: absolute;
+    font-size: 48px;
+    color: rgba(255, 255, 100, 0.8);
+    text-shadow: 0 0 20px rgba(255, 200, 0, 0.5);
+    transition: opacity 0.3s ease;
+}
+
+.arrow.up {
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+}
+.arrow.down {
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+}
+.arrow.left {
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+}
+.arrow.right {
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.arrow.visible {
+    opacity: 1;
+    animation: bounce 1s infinite;
+}
+
+.arrow.up.visible {
+    animation: bounce-up 1s infinite;
+}
+.arrow.down.visible {
+    animation: bounce-down 1s infinite;
+}
+.arrow.left.visible {
+    animation: bounce-left 1s infinite;
+}
+.arrow.right.visible {
+    animation: bounce-right 1s infinite;
+}
+
+@keyframes bounce-up {
+    0%,
+    100% {
+        transform: translateX(-50%) translateY(0);
+    }
+    50% {
+        transform: translateX(-50%) translateY(-10px);
+    }
+}
+@keyframes bounce-down {
+    0%,
+    100% {
+        transform: translateX(-50%) translateY(0);
+    }
+    50% {
+        transform: translateX(-50%) translateY(10px);
+    }
+}
+@keyframes bounce-left {
+    0%,
+    100% {
+        transform: translateY(-50%) translateX(0);
+    }
+    50% {
+        transform: translateY(-50%) translateX(-10px);
+    }
+}
+@keyframes bounce-right {
+    0%,
+    100% {
+        transform: translateY(-50%) translateX(0);
+    }
+    50% {
+        transform: translateY(-50%) translateX(10px);
+    }
+}
+
+#search-text {
+    margin-top: 20px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.7);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.4);
+    padding: 6px 16px;
+    border-radius: 20px;
+}
+
+/* Compass */
+#compass {
+    position: absolute;
+    bottom: 100px;
+    right: 16px;
+    z-index: 10;
+    width: 50px;
+    height: 50px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+#compass-needle {
+    font-size: 20px;
+    transition: transform 0.1s ease;
+    color: #ff4444;
+}
+
+#compass-north {
+    font-size: 10px;
+    margin-top: -2px;
+    color: #ff4444;
+    font-weight: bold;
+}
+
+/* Control Panel */
+#control-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: rgba(10, 10, 30, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 20px 20px 0 0;
+    max-height: 65vh;
+    overflow-y: auto;
+    transition: transform 0.3s ease;
+    transform: translateY(calc(100% - 50px));
+}
+
+#control-panel.open {
+    transform: translateY(0);
+}
+
+#panel-handle {
+    text-align: center;
+    padding: 8px;
+    font-size: 24px;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    letter-spacing: 4px;
+}
+
+.panel-content {
+    padding: 0 20px 20px;
+}
+
+.panel-content h2 {
+    text-align: center;
+    margin-bottom: 16px;
+    font-size: 20px;
+    font-weight: 600;
+    color: #ffd700;
+}
+
+.input-group {
+    margin-bottom: 12px;
+}
+
+.input-group label {
+    display: block;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.input-group input,
+.input-group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.input-group input:focus,
+.input-group select:focus {
+    border-color: #ffd700;
+}
+
+.input-group select option {
+    background: #1a1a3a;
+    color: #fff;
+}
+
+#manual-coords {
+    display: flex;
+    gap: 10px;
+}
+
+#manual-coords .input-group {
+    flex: 1;
+}
+
+.info-row {
+    text-align: center;
+    margin: 8px 0;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.info-row.small {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.button-row {
+    display: flex;
+    gap: 10px;
+    margin: 16px 0;
+}
+
+.btn {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn:active {
+    transform: scale(0.96);
+}
+
+.btn.primary {
+    background: linear-gradient(135deg, #ffd700, #ff8c00);
+    color: #1a1a2e;
+}
+
+.btn.secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn.secondary.active {
+    background: rgba(255, 215, 0, 0.2);
+    border-color: #ffd700;
+    color: #ffd700;
+}
+
+/* Permission overlay */
+#permission-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.permission-box {
+    background: #1a1a3a;
+    border-radius: 20px;
+    padding: 32px 24px;
+    max-width: 320px;
+    width: 90%;
+    text-align: center;
+}
+
+.permission-box h2 {
+    font-size: 22px;
+    margin-bottom: 16px;
+    color: #ffd700;
+}
+
+.permission-box p {
+    margin-bottom: 12px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.permission-box ul {
+    list-style: none;
+    margin: 16px 0 24px;
+    text-align: left;
+}
+
+.permission-box ul li {
+    padding: 8px 0;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.permission-box .btn {
+    width: 100%;
+}
+
+/* Utilities */
+.hidden {
+    display: none !important;
+}
+
+/* Scrollbar */
+#control-panel::-webkit-scrollbar {
+    width: 4px;
+}
+
+#control-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#control-panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+/* Landscape orientation adjustments */
+@media (orientation: landscape) and (max-height: 500px) {
+    #control-panel {
+        max-height: 80vh;
+    }
+    .panel-content h2 {
+        font-size: 16px;
+        margin-bottom: 8px;
+    }
+    .input-group {
+        margin-bottom: 6px;
+    }
+    .input-group input,
+    .input-group select {
+        padding: 6px 10px;
+        font-size: 13px;
+    }
+    .button-row {
+        margin: 8px 0;
+    }
+    .btn {
+        padding: 8px;
+        font-size: 12px;
+    }
+}

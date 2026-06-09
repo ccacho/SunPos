@@ -1,0 +1,12 @@
+{
+  "name": "sun-pos-ar",
+  "version": "1.0.0",
+  "description": "PWA de realidad aumentada para visualizar la posición del sol",
+  "scripts": {
+    "dev": "npx serve .",
+    "build": "echo \"No build step required - static PWA\"",
+    "start": "npx serve . -l 3000"
+  },
+  "keywords": ["sun", "ar", "pwa", "solar-position"],
+  "license": "MIT"
+}

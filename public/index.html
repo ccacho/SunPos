@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+        />
+        <meta name="theme-color" content="#0a0a1a" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta
+            name="apple-mobile-web-app-status-bar-style"
+            content="black-translucent"
+        />
+        <meta
+            name="description"
+            content="Visualiza la posicion del sol en realidad aumentada"
+        />
+        <link rel="manifest" href="manifest.json" />
+        <link rel="icon" href="icons/icon-192.png" sizes="192x192" />
+        <link rel="apple-touch-icon" href="icons/icon-192.png" />
+        <link rel="stylesheet" href="styles.css" />
+        <title>SunPos AR</title>
+    </head>
+    <body>
+        <div id="camera-container">
+            <video id="camera-feed" autoplay playsinline muted></video>
+            <canvas id="ar-canvas"></canvas>
+            <div id="grid-bg"></div>
+            <div id="horizon-line"></div>
+            <div id="search-indicator" class="hidden">
+                <div class="search-arrows">
+                    <div id="arrow-up" class="arrow up hidden">▲</div>
+                    <div id="arrow-down" class="arrow down hidden">▼</div>
+                    <div id="arrow-left" class="arrow left hidden">◀</div>
+                    <div id="arrow-right" class="arrow right hidden">▶</div>
+                </div>
+                <p id="search-text">
+                    Mueve el dispositivo para encontrar el sol
+                </p>
+            </div>
+            <div id="sun-overlay" class="hidden">
+                <div id="sun-circle"></div>
+                <div id="sun-label"></div>
+            </div>
+            <div id="horizon-indicator" class="hidden">
+                <div id="horizon-arrow">▼</div>
+                <div id="horizon-label">Sol por aqui</div>
+            </div>
+            <div id="compass">
+                <div id="compass-needle">▲</div>
+                <div id="compass-north">N</div>
+            </div>
+        </div>
+        <div id="control-panel">
+            <div id="panel-handle">⋮</div>
+            <div class="panel-content">
+                <h2>SunPos AR</h2>
+                <div class="input-group">
+                    <label for="date-input">Fecha</label>
+                    <input type="date" id="date-input" />
+                </div>
+                <div class="input-group">
+                    <label for="time-input">Hora</label>
+                    <input type="time" id="time-input" />
+                </div>
+                <div class="input-group">
+                    <label for="location-method">Ubicacion</label>
+                    <select id="location-method">
+                        <option value="gps">GPS del dispositivo</option>
+                        <option value="manual">Coordenadas manuales</option>
+                    </select>
+                </div>
+                <div id="manual-coords" class="hidden">
+                    <div class="input-group">
+                        <label for="lat-input">Latitud</label>
+                        <input
+                            type="number"
+                            id="lat-input"
+                            step="any"
+                            placeholder="Ej: 40.4168"
+                        />
+                    </div>
+                    <div class="input-group">
+                        <label for="lon-input">Longitud</label>
+                        <input
+                            type="number"
+                            id="lon-input"
+                            step="any"
+                            placeholder="Ej: -3.7038"
+                        />
+                    </div>
+                </div>
+                <div class="info-row">
+                    <span id="location-info"
+                        >Usa coordenadas manuales o GPS</span
+                    >
+                </div>
+                <div class="info-row">
+                    <span id="sun-info"></span>
+                </div>
+                <div class="button-row">
+                    <button id="btn-locate" class="btn primary">
+                        🔍 Localizar Sol
+                    </button>
+                    <button id="btn-follow" class="btn secondary">
+                        🎯 Seguir tiempo real
+                    </button>
+                </div>
+                <div class="info-row small">
+                    <span id="device-orientation">Orientacion: --</span>
+                </div>
+                <div class="info-row small">
+                    <span id="sensor-status">Sensores: --</span>
+                </div>
+            </div>
+        </div>
+        <div id="permission-overlay">
+            <div class="permission-box">
+                <h2>SunPos AR</h2>
+                <p>Visualiza la posicion del sol en realidad aumentada</p>
+                <ul>
+                    <li>📷 Camara (para realidad aumentada)</li>
+                    <li>📍 GPS (para tu ubicacion)</li>
+                    <li>🧭 Sensores de movimiento (brujula)</li>
+                </ul>
+                <button id="btn-start" class="btn primary">
+                    Comenzar con camara
+                </button>
+                <button
+                    id="btn-demo"
+                    class="btn secondary"
+                    style="margin-top: 10px"
+                >
+                    🧪 Modo prueba (sin camara)
+                </button>
+            </div>
+        </div>
+        <script src="js/suncalc.js"></script>
+        <script src="js/sensors.js"></script>
+        <script src="js/ar-renderer.js"></script>
+        <script src="js/app.js"></script>
+    </body>
+</html>
