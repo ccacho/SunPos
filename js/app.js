@@ -44,6 +44,14 @@ const App = (() => {
   };
 
   function init() {
+    // Registrar Service Worker
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("sw.js")
+        .then(() => console.log("SW registrado"))
+        .catch((err) => console.warn("SW error:", err));
+    }
+
     const now = new Date();
     dateInput.value = now.toISOString().split("T")[0];
     timeInput.value = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
