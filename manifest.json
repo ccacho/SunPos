@@ -3,10 +3,15 @@
   "short_name": "SunPos",
   "description": "Visualiza la posicion del sol en realidad aumentada",
   "start_url": "/",
-  "display": "fullscreen",
+  "scope": "/",
+  "display": "standalone",
   "orientation": "any",
   "background_color": "#0a0a1a",
-  "theme_color": "#0a0a1a",
+  "theme_color": "#ffd700",
+  "categories": ["utilities", "navigation", "education"],
+  "lang": "es",
+  "dir": "ltr",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "icons/icon-192.png",
@@ -21,8 +26,6 @@
       "purpose": "any maskable"
     }
   ],
-  "permissions": [
-    "camera",
-    "geolocation"
-  ]
+  "screenshots": [],
+  "features": ["Cross Platform", "Camera", "Geolocation", "Device Orientation"]
 }
