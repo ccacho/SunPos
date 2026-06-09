@@ -1,16 +1,20 @@
-const CACHE_NAME = "sunpos-ar-v1";
+const CACHE_NAME = "sunpos-ar-v2";
+
+// Detectar la base URL automaticamente (funciona en localhost y GitHub Pages)
+const BASE = self.location.pathname.replace(/\/sw\.js$/, "") || "/";
+
 const ASSETS = [
-  "/",
-  "/index.html",
-  "/styles.css",
-  "/manifest.json",
-  "/sw.js",
-  "/js/suncalc.js",
-  "/js/sensors.js",
-  "/js/ar-renderer.js",
-  "/js/app.js",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
+  BASE + "/",
+  BASE + "/index.html",
+  BASE + "/styles.css",
+  BASE + "/manifest.json",
+  BASE + "/sw.js",
+  BASE + "/js/suncalc.js",
+  BASE + "/js/sensors.js",
+  BASE + "/js/ar-renderer.js",
+  BASE + "/js/app.js",
+  BASE + "/icons/icon-192.png",
+  BASE + "/icons/icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {
