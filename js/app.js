@@ -287,7 +287,6 @@ const App = (() => {
     _state.isDemoMode = true;
 
     gridBg.classList.add("visible");
-    horizonLine.classList.add("visible");
     cameraFeed.style.display = "none";
 
     Sensors.start();

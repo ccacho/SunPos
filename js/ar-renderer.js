@@ -20,6 +20,7 @@ const ARRenderer = (() => {
   const horizonIndicator = $("horizon-indicator");
   const horizonArrow = $("horizon-arrow");
   const horizonLabel = $("horizon-label");
+  const horizonLine = $("horizon-line");
 
   let _cam = {
     vFOV: 50,
@@ -75,7 +76,16 @@ const ARRenderer = (() => {
       sunOverlay.classList.add("hidden");
     }
 
-    // ===== 2. INDICADOR EN EL BORDE =====
+    // ===== 1.5. LINEA DEL HORIZONTE =====
+    // Se mueve con la inclinacion de la camara
+    if (true) {
+      const horY = _cam.height / 2 + (_deviceBeta / (_cam.vFOV / 2)) * _cam.height;
+      horizonLine.classList.remove("hidden");
+      horizonLine.style.top = horY + "px";
+      horizonLine.style.display = "block";
+    }
+
+        // ===== 2. INDICADOR EN EL BORDE =====
     // Muestra una flecha en el borde de la pantalla indicando donde esta el sol
     // cuando esta fuera de la pantalla
     if (!onScreen || !sobreHorizonte) {
@@ -94,6 +104,7 @@ const ARRenderer = (() => {
         }
       } else {
         horizonIndicator.classList.add("hidden");
+    horizonLine.classList.add("hidden");
       }
     } else {
       horizonIndicator.classList.add("hidden");
