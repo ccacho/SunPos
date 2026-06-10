@@ -59,11 +59,14 @@ const ARRenderer = (() => {
     dir: { up: false, down: false, left: false, right: false },
   };
 
-  const MOTION_ALPHA = 0.07;
-  const HORIZON_ALPHA = 0.045;
-  const COMPASS_ALPHA = 0.08;
-  const TEXT_INTERVAL_MS = 300;
-  const MIN_PIXEL_MOVE = 2.5;
+  const MOTION_ALPHA = 0.035;
+  const HORIZON_ALPHA = 0.02;
+  const COMPASS_ALPHA = 0.04;
+  const TEXT_INTERVAL_MS = 800;
+  const MIN_PIXEL_MOVE = 6;
+  const SENSOR_DEADBAND_DEG = 0.45;
+  const HORIZON_DEADBAND_DEG = 0.35;
+  const AIM_LOCK_DEG = 3.5;
 
   function calibrateCamera() {
     _cam.width = window.innerWidth;
@@ -84,8 +87,23 @@ const ARRenderer = (() => {
   function render() {
     calibrateCamera();
 
-    const azDiff = smoothValue("azDiff", angleDiff(_sunAzimuth, _deviceHeading), MOTION_ALPHA, 0.08);
-    const relAlt = smoothValue("relAlt", _sunAltitude - _deviceBeta, MOTION_ALPHA, 0.08);
+    const rawAzDiff = smoothValue(
+      "azDiff",
+      angleDiff(_sunAzimuth, _deviceHeading),
+      MOTION_ALPHA,
+      SENSOR_DEADBAND_DEG,
+    );
+    const rawRelAlt = smoothValue(
+      "relAlt",
+      _sunAltitude - _deviceBeta,
+      MOTION_ALPHA,
+      SENSOR_DEADBAND_DEG,
+    );
+    const azDiff = applyAimLock(rawAzDiff);
+    const relAlt = applyAimLock(rawRelAlt);
+    const isCentered =
+      Math.abs(rawAzDiff) <= AIM_LOCK_DEG &&
+      Math.abs(rawRelAlt) <= AIM_LOCK_DEG;
     const sobreHorizonte = _sunAltitude > -0.5;
     const textCanUpdate = shouldUpdateText();
 
@@ -104,7 +122,9 @@ const ARRenderer = (() => {
       sunCircle.style.transform = `scale(${Math.max(0.4, Math.min(1, (_sunAltitude + 10) / 90))})`;
       sunLabel.style.opacity = 1;
       if (textCanUpdate || !_display.sunLabel) {
-        _display.sunLabel = `${Math.round(_sunAltitude)}° sobre horizonte`;
+        _display.sunLabel = isCentered
+          ? `Sol centrado · ${Math.round(_sunAltitude)}°`
+          : `${Math.round(_sunAltitude)}° sobre horizonte`;
         sunLabel.textContent = _display.sunLabel;
       }
     } else {
@@ -114,7 +134,12 @@ const ARRenderer = (() => {
     // ===== 1.5. LINEA DEL HORIZONTE =====
     // Se mueve con la inclinacion de la camara
     if (true) {
-      const beta = smoothValue("beta", _deviceBeta, HORIZON_ALPHA, 0.12);
+      const beta = smoothValue(
+        "beta",
+        _deviceBeta,
+        HORIZON_ALPHA,
+        HORIZON_DEADBAND_DEG,
+      );
       const rawHorY = _cam.height / 2 + (beta / (_cam.vFOV / 2)) * _cam.height;
       const horY = smoothPixel("horizonY", rawHorY, HORIZON_ALPHA);
       horizonLine.classList.remove("hidden");
@@ -136,7 +161,7 @@ const ARRenderer = (() => {
         if (sobreHorizonte) {
           horizonArrow.textContent = edgePos.arrow;
           if (textCanUpdate || !_display.edgeLabel) {
-            _display.edgeLabel = `Sol ${Math.round(Math.abs(azDiff))}° ${azDiff > 0 ? "der" : "izq"}, ${Math.round(Math.abs(relAlt))}° ${relAlt > 0 ? "arriba" : "abajo"}`;
+            _display.edgeLabel = `Sol ${roundGuideDegrees(Math.abs(azDiff))}° ${azDiff > 0 ? "der" : "izq"}, ${roundGuideDegrees(Math.abs(relAlt))}° ${relAlt > 0 ? "arriba" : "abajo"}`;
             horizonLabel.textContent = _display.edgeLabel;
           }
         } else {
@@ -164,7 +189,9 @@ const ARRenderer = (() => {
       showArrows(dir);
       if (sobreHorizonte) {
         if (textCanUpdate || !_display.searchLabel) {
-          _display.searchLabel = `Sol: ${Math.round(Math.abs(azDiff))}° ${azDiff > 0 ? "→" : "←"}, ${Math.round(Math.abs(relAlt))}° ${relAlt > 0 ? "↑" : "↓"}`;
+          _display.searchLabel = isCentered
+            ? "Sol centrado"
+            : `Sol: ${roundGuideDegrees(Math.abs(azDiff))}° ${azDiff > 0 ? "→" : "←"}, ${roundGuideDegrees(Math.abs(relAlt))}° ${relAlt > 0 ? "↑" : "↓"}`;
           searchText.textContent = _display.searchLabel;
         }
       } else {
@@ -178,12 +205,26 @@ const ARRenderer = (() => {
     }
 
     // ===== 4. BRUJULA =====
-    const heading = smoothAngle("heading", _deviceHeading, COMPASS_ALPHA, 0.12);
+    const heading = smoothAngle(
+      "heading",
+      _deviceHeading,
+      COMPASS_ALPHA,
+      SENSOR_DEADBAND_DEG,
+    );
     compassNeedle.style.transform = `rotate(${-heading}deg)`;
   }
 
   function angleDiff(target, current) {
     return ((((target - current) % 360) + 540) % 360) - 180;
+  }
+
+  function applyAimLock(value) {
+    return Math.abs(value) <= AIM_LOCK_DEG ? 0 : value;
+  }
+
+  function roundGuideDegrees(value) {
+    if (value <= AIM_LOCK_DEG) return 0;
+    return Math.round(value / 5) * 5;
   }
 
   function smoothValue(key, value, alpha, deadband = 0) {
