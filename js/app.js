@@ -603,31 +603,28 @@ const App = (() => {
   }
 
   function onOrientationUpdate(state) {
-    // En modo demo, ignoramos los sensores reales
     if (_state.isDemoMode) return;
 
-    deviceOrient.textContent = `Orientacion: ${Math.round(state.alpha)}° | beta: ${Math.round(state.beta)}° | gamma: ${Math.round(state.gamma)}°`;
-
-    if (state.alpha !== 0 || state.beta !== 0 || state.gamma !== 0) {
-      sensorStatus.textContent =
-        (_state.cameraReady ? "Camara OK | " : "Camara NO | ") + "Sensores OK";
-    }
+    const camBeta = state.beta - 90;
+    deviceOrient.textContent =
+      `Sensor: ${Math.round(state.alpha)}° a, ${Math.round(state.beta)}° b | Cam elev: ${Math.round(camBeta)}°`;
+    sensorStatus.textContent =
+      (_state.cameraReady ? "Camara OK | " : "Camara NO | ") + "Sensores OK";
   }
 
   function gameLoop() {
     let heading, beta;
 
     if (_state.isDemoMode) {
-      // Usar valores del modo demo
+      // Modo demo: simulacion
       heading = _state.demoHeading;
-      beta =
-        (_state._targetSunPos ? _state._targetSunPos.altitude : 0) +
-        (_state.demoRelAltOffset || 0);
+      beta = (_state._targetSunPos ? _state._targetSunPos.altitude : 0) + (_state.demoRelAltOffset || 0);
     } else {
-      // Usar sensores reales
+      // Sensores reales: convertir sensor.beta (0=tumbado, 90=vertical) a elevacion camara
       const sensorState = Sensors.getState();
       heading = Sensors.getTrueHeading();
-      beta = sensorState.beta;
+      // sensor.beta=90° -> camara al horizonte (0°). sensor.beta=0° -> camara al suelo (-90°)
+      beta = sensorState.beta - 90;
     }
 
     let pos;
