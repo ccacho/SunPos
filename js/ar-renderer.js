@@ -41,11 +41,29 @@ const ARRenderer = (() => {
     beta: null,
   };
 
+  let _display = {
+    horizonY: null,
+    sunX: null,
+    sunY: null,
+    edgeX: null,
+    edgeY: null,
+    lastTextUpdate: 0,
+    sunLabel: "",
+    edgeLabel: "",
+    searchLabel: "",
+  };
+
   let _ui = {
     sunVisible: false,
     edgeVisible: false,
     dir: { up: false, down: false, left: false, right: false },
   };
+
+  const MOTION_ALPHA = 0.07;
+  const HORIZON_ALPHA = 0.045;
+  const COMPASS_ALPHA = 0.08;
+  const TEXT_INTERVAL_MS = 300;
+  const MIN_PIXEL_MOVE = 2.5;
 
   function calibrateCamera() {
     _cam.width = window.innerWidth;
@@ -66,9 +84,10 @@ const ARRenderer = (() => {
   function render() {
     calibrateCamera();
 
-    const azDiff = smoothValue("azDiff", angleDiff(_sunAzimuth, _deviceHeading), 0.18);
-    const relAlt = smoothValue("relAlt", _sunAltitude - _deviceBeta, 0.18);
+    const azDiff = smoothValue("azDiff", angleDiff(_sunAzimuth, _deviceHeading), MOTION_ALPHA, 0.08);
+    const relAlt = smoothValue("relAlt", _sunAltitude - _deviceBeta, MOTION_ALPHA, 0.08);
     const sobreHorizonte = _sunAltitude > -0.5;
+    const textCanUpdate = shouldUpdateText();
 
     // Proyectar a coordenadas de pantalla (sin clampear)
     const { x, y } = projectSunToScreen(azDiff, relAlt);
@@ -78,12 +97,16 @@ const ARRenderer = (() => {
     // Solo se muestra cuando esta DENTRO de la pantalla y sobre el horizonte
     if (onScreen && sobreHorizonte) {
       sunOverlay.classList.remove("hidden");
-      sunOverlay.style.left = x + "px";
-      sunOverlay.style.top = y + "px";
+      const sunPoint = smoothPoint("sun", x, y, MOTION_ALPHA);
+      sunOverlay.style.left = sunPoint.x + "px";
+      sunOverlay.style.top = sunPoint.y + "px";
       sunCircle.style.opacity = 1;
       sunCircle.style.transform = `scale(${Math.max(0.4, Math.min(1, (_sunAltitude + 10) / 90))})`;
       sunLabel.style.opacity = 1;
-      sunLabel.textContent = `${Math.round(_sunAltitude)}° sobre horizonte`;
+      if (textCanUpdate || !_display.sunLabel) {
+        _display.sunLabel = `${Math.round(_sunAltitude)}° sobre horizonte`;
+        sunLabel.textContent = _display.sunLabel;
+      }
     } else {
       sunOverlay.classList.add("hidden");
     }
@@ -91,8 +114,9 @@ const ARRenderer = (() => {
     // ===== 1.5. LINEA DEL HORIZONTE =====
     // Se mueve con la inclinacion de la camara
     if (true) {
-      const beta = smoothValue("beta", _deviceBeta, 0.18);
-      const horY = _cam.height / 2 + (beta / (_cam.vFOV / 2)) * _cam.height;
+      const beta = smoothValue("beta", _deviceBeta, HORIZON_ALPHA, 0.12);
+      const rawHorY = _cam.height / 2 + (beta / (_cam.vFOV / 2)) * _cam.height;
+      const horY = smoothPixel("horizonY", rawHorY, HORIZON_ALPHA);
       horizonLine.classList.remove("hidden");
       horizonLine.style.top = horY + "px";
       horizonLine.style.display = "block";
@@ -105,15 +129,22 @@ const ARRenderer = (() => {
       const edgePos = projectToEdge(azDiff, relAlt);
       if (edgePos) {
         horizonIndicator.classList.remove("hidden");
-        horizonIndicator.style.left = edgePos.x + "px";
-        horizonIndicator.style.top = edgePos.y + "px";
+        const edgePoint = smoothPoint("edge", edgePos.x, edgePos.y, MOTION_ALPHA);
+        horizonIndicator.style.left = edgePoint.x + "px";
+        horizonIndicator.style.top = edgePoint.y + "px";
 
         if (sobreHorizonte) {
           horizonArrow.textContent = edgePos.arrow;
-          horizonLabel.textContent = `Sol ${Math.round(Math.abs(azDiff))}° ${azDiff > 0 ? "der" : "izq"}, ${Math.round(Math.abs(relAlt))}° ${relAlt > 0 ? "arriba" : "abajo"}`;
+          if (textCanUpdate || !_display.edgeLabel) {
+            _display.edgeLabel = `Sol ${Math.round(Math.abs(azDiff))}° ${azDiff > 0 ? "der" : "izq"}, ${Math.round(Math.abs(relAlt))}° ${relAlt > 0 ? "arriba" : "abajo"}`;
+            horizonLabel.textContent = _display.edgeLabel;
+          }
         } else {
           horizonArrow.textContent = "▼";
-          horizonLabel.textContent = `Sol ${Math.round(Math.abs(_sunAltitude))}° bajo horizonte`;
+          if (textCanUpdate || !_display.edgeLabel) {
+            _display.edgeLabel = `Sol ${Math.round(Math.abs(_sunAltitude))}° bajo horizonte`;
+            horizonLabel.textContent = _display.edgeLabel;
+          }
         }
       } else {
         horizonIndicator.classList.add("hidden");
@@ -132,16 +163,22 @@ const ARRenderer = (() => {
       searchIndicator.classList.remove("hidden");
       showArrows(dir);
       if (sobreHorizonte) {
-        searchText.textContent = `Sol: ${Math.round(Math.abs(azDiff))}° ${azDiff > 0 ? "→" : "←"}, ${Math.round(Math.abs(relAlt))}° ${relAlt > 0 ? "↑" : "↓"}`;
+        if (textCanUpdate || !_display.searchLabel) {
+          _display.searchLabel = `Sol: ${Math.round(Math.abs(azDiff))}° ${azDiff > 0 ? "→" : "←"}, ${Math.round(Math.abs(relAlt))}° ${relAlt > 0 ? "↑" : "↓"}`;
+          searchText.textContent = _display.searchLabel;
+        }
       } else {
-        searchText.textContent = `Sol ${Math.round(Math.abs(_sunAltitude))}° bajo horizonte`;
+        if (textCanUpdate || !_display.searchLabel) {
+          _display.searchLabel = `Sol ${Math.round(Math.abs(_sunAltitude))}° bajo horizonte`;
+          searchText.textContent = _display.searchLabel;
+        }
       }
     } else {
       searchIndicator.classList.add("hidden");
     }
 
     // ===== 4. BRUJULA =====
-    const heading = smoothAngle("heading", _deviceHeading, 0.18);
+    const heading = smoothAngle("heading", _deviceHeading, COMPASS_ALPHA, 0.12);
     compassNeedle.style.transform = `rotate(${-heading}deg)`;
   }
 
@@ -149,27 +186,64 @@ const ARRenderer = (() => {
     return ((((target - current) % 360) + 540) % 360) - 180;
   }
 
-  function smoothValue(key, value, alpha) {
+  function smoothValue(key, value, alpha, deadband = 0) {
     if (_smooth[key] === null || !Number.isFinite(_smooth[key])) {
       _smooth[key] = value;
       return value;
     }
-    _smooth[key] += (value - _smooth[key]) * alpha;
+    const delta = value - _smooth[key];
+    if (Math.abs(delta) < deadband) {
+      return _smooth[key];
+    }
+    _smooth[key] += delta * alpha;
     return _smooth[key];
   }
 
-  function smoothAngle(key, angle, alpha) {
+  function smoothAngle(key, angle, alpha, deadband = 0) {
     if (_smooth[key] === null || !Number.isFinite(_smooth[key])) {
       _smooth[key] = angle;
       return angle;
     }
-    _smooth[key] = (_smooth[key] + angleDiff(angle, _smooth[key]) * alpha + 360) % 360;
+    const delta = angleDiff(angle, _smooth[key]);
+    if (Math.abs(delta) < deadband) {
+      return _smooth[key];
+    }
+    _smooth[key] = (_smooth[key] + delta * alpha + 360) % 360;
     return _smooth[key];
   }
 
+  function smoothPixel(key, value, alpha) {
+    if (_display[key] === null || !Number.isFinite(_display[key])) {
+      _display[key] = value;
+      return value;
+    }
+    const delta = value - _display[key];
+    if (Math.abs(delta) < MIN_PIXEL_MOVE) {
+      return _display[key];
+    }
+    _display[key] += delta * alpha;
+    return _display[key];
+  }
+
+  function smoothPoint(prefix, x, y, alpha) {
+    return {
+      x: smoothPixel(`${prefix}X`, x, alpha),
+      y: smoothPixel(`${prefix}Y`, y, alpha),
+    };
+  }
+
+  function shouldUpdateText() {
+    const now = performance.now();
+    if (now - _display.lastTextUpdate < TEXT_INTERVAL_MS) {
+      return false;
+    }
+    _display.lastTextUpdate = now;
+    return true;
+  }
+
   function isOnScreenStable(x, y, sobreHorizonte) {
-    const margin = _ui.sunVisible ? 70 : 12;
-    const altitudeLimit = _ui.sunVisible ? -1.5 : -0.5;
+    const margin = _ui.sunVisible ? 140 : 0;
+    const altitudeLimit = _ui.sunVisible ? -2 : -0.5;
     _ui.sunVisible =
       _sunAltitude > altitudeLimit &&
       (sobreHorizonte || _ui.sunVisible) &&
@@ -269,8 +343,8 @@ const ARRenderer = (() => {
   }
 
   function getStableDirection(azDiff, relAlt) {
-    const enter = 10;
-    const exit = 5;
+    const enter = 14;
+    const exit = 7;
     _ui.dir.up = _ui.dir.up ? relAlt > exit : relAlt > enter;
     _ui.dir.down = _ui.dir.down ? relAlt < -exit : relAlt < -enter;
     _ui.dir.left = _ui.dir.left ? azDiff < -exit : azDiff < -enter;
@@ -294,6 +368,17 @@ const ARRenderer = (() => {
     searchIndicator.classList.add("hidden");
     horizonIndicator.classList.add("hidden");
     _smooth = { azDiff: null, relAlt: null, heading: null, beta: null };
+    _display = {
+      horizonY: null,
+      sunX: null,
+      sunY: null,
+      edgeX: null,
+      edgeY: null,
+      lastTextUpdate: 0,
+      sunLabel: "",
+      edgeLabel: "",
+      searchLabel: "",
+    };
     _ui = {
       sunVisible: false,
       edgeVisible: false,
