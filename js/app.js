@@ -317,7 +317,8 @@ const App = (() => {
 
       _state.demoHeading = pos.azimuth;
       _state.demoRelAltOffset = 0; // sol centrado verticalmente
-      _state.demoHeading = pos.azimuth;      sensorStatus.textContent = `Ubicacion: ${fuente} - Modo demo`;
+      _state.demoHeading = pos.azimuth;
+      sensorStatus.textContent = `Ubicacion: ${fuente} - Modo demo`;
       console.log("Demo: sol =", pos.altitude, pos.azimuth);
     });
   }
@@ -438,14 +439,14 @@ const App = (() => {
   function updateTouchDisplay() {
     const el = document.getElementById("touch-value");
     if (el) {
-      el.textContent = `Az:${Math.round(_state.demoHeading)}° Off:${Math.round(_state.demoRelAltOffset||0)}°`;
+      el.textContent = `Az:${Math.round(_state.demoHeading)}° Off:${Math.round(_state.demoRelAltOffset || 0)}°`;
     }
-    deviceOrient.textContent = `Azimuth: ${Math.round(_state.demoHeading)}° | OffsetV:${Math.round(_state.demoRelAltOffset||0)}°`;
+    deviceOrient.textContent = `Azimuth: ${Math.round(_state.demoHeading)}° | OffsetV:${Math.round(_state.demoRelAltOffset || 0)}°`;
 
     // Actualizar etiqueta del slider de elevacion para mostrar el rango real
     const elLabel = document.querySelector("#touch-control label:nth-child(3)");
     if (elLabel) {
-      elLabel.textContent = `Sol en pantalla (offset: ${Math.round(_state.demoRelAltOffset||0)}°)`;
+      elLabel.textContent = `Sol en pantalla (offset: ${Math.round(_state.demoRelAltOffset || 0)}°)`;
     }
   }
 
@@ -507,7 +508,7 @@ const App = (() => {
         const azThumb = document.querySelector("#slider-azimuth .thumb");
         const elThumb = document.querySelector("#slider-elevation .thumb");
         if (azThumb) azThumb.style.left = `calc(${azRatio * 100}% - 12px)`;
-        if (elThumb) elThumb.style.left = `calc(${elRatio * 100}% - 12px)`;
+        if (elThumb) elThumb.style.left = `calc(${50}% - 12px)`;
         updateTouchDisplay();
       }
 
@@ -619,7 +620,9 @@ const App = (() => {
     if (_state.isDemoMode) {
       // Usar valores del modo demo
       heading = _state.demoHeading;
-      beta = (_state._targetSunPos ? _state._targetSunPos.altitude : 0) + (_state.demoRelAltOffset || 0);
+      beta =
+        (_state._targetSunPos ? _state._targetSunPos.altitude : 0) +
+        (_state.demoRelAltOffset || 0);
     } else {
       // Usar sensores reales
       const sensorState = Sensors.getState();

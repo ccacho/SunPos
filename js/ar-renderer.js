@@ -38,10 +38,9 @@ const ARRenderer = (() => {
   function calibrateCamera() {
     _cam.width = window.innerWidth;
     _cam.height = window.innerHeight;
-    const aspect = _cam.width / _cam.height;
+    // FOV fijo de camara trasera (~65° horiz, ~50° vert), no depende de pantalla
     _cam.vFOV = 50;
-    _cam.hFOV =
-      2 * Math.atan(aspect * Math.tan((_cam.vFOV * DEG) / 2)) * (180 / Math.PI);
+    _cam.hFOV = 65;
   }
 
   function update(sunAzimuth, sunAltitude, deviceHeading, deviceBeta) {
