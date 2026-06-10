@@ -59,14 +59,15 @@ const ARRenderer = (() => {
     dir: { up: false, down: false, left: false, right: false },
   };
 
-  const MOTION_ALPHA = 0.035;
-  const HORIZON_ALPHA = 0.02;
-  const COMPASS_ALPHA = 0.04;
-  const TEXT_INTERVAL_MS = 800;
-  const MIN_PIXEL_MOVE = 6;
-  const SENSOR_DEADBAND_DEG = 0.45;
-  const HORIZON_DEADBAND_DEG = 0.35;
-  const AIM_LOCK_DEG = 3.5;
+  let MOTION_ALPHA = 0.035;
+  let HORIZON_ALPHA = 0.02;
+  let COMPASS_ALPHA = 0.04;
+  let TEXT_INTERVAL_MS = 800;
+  let MIN_PIXEL_MOVE = 6;
+  let SENSOR_DEADBAND_DEG = 0.45;
+  let HORIZON_DEADBAND_DEG = 0.35;
+  let AIM_LOCK_DEG = 3.5;
+  let _mode = "stable";
 
   function calibrateCamera() {
     _cam.width = window.innerWidth;
@@ -82,6 +83,32 @@ const ARRenderer = (() => {
     _deviceHeading = deviceHeading;
     _deviceBeta = deviceBeta || 0;
     render();
+  }
+
+  function setMode(mode) {
+    _mode = mode === "search" ? "search" : "stable";
+
+    if (_mode === "search") {
+      MOTION_ALPHA = 0.12;
+      HORIZON_ALPHA = 0.08;
+      COMPASS_ALPHA = 0.14;
+      TEXT_INTERVAL_MS = 350;
+      MIN_PIXEL_MOVE = 3;
+      SENSOR_DEADBAND_DEG = 0.15;
+      HORIZON_DEADBAND_DEG = 0.18;
+      AIM_LOCK_DEG = 2;
+    } else {
+      MOTION_ALPHA = 0.025;
+      HORIZON_ALPHA = 0.015;
+      COMPASS_ALPHA = 0.035;
+      TEXT_INTERVAL_MS = 1000;
+      MIN_PIXEL_MOVE = 8;
+      SENSOR_DEADBAND_DEG = 0.65;
+      HORIZON_DEADBAND_DEG = 0.5;
+      AIM_LOCK_DEG = 5;
+    }
+
+    reset();
   }
 
   function render() {
@@ -430,5 +457,5 @@ const ARRenderer = (() => {
   calibrateCamera();
   window.addEventListener("resize", calibrateCamera);
 
-  return { update, reset };
+  return { update, reset, setMode };
 })();

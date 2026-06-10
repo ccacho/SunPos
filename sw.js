@@ -1,4 +1,4 @@
-const CACHE_NAME = "sunpos-ar-v6";
+const CACHE_NAME = "sunpos-ar-v7";
 
 // Detectar la base URL automaticamente (funciona en localhost y GitHub Pages)
 const BASE = self.location.pathname.replace(/\/sw\.js$/, "") || "/";

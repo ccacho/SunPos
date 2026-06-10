@@ -19,6 +19,7 @@ const App = (() => {
   const sensorStatus = $("sensor-status");
   const btnLocate = $("btn-locate");
   const btnFollow = $("btn-follow");
+  const trackingMode = $("tracking-mode");
   const btnStart = $("btn-start");
   const btnDemo = $("btn-demo");
   const permissionOverlay = $("permission-overlay");
@@ -36,6 +37,8 @@ const App = (() => {
     cameraReady: false,
     animFrameId: null,
     sensorsStarted: false,
+    trackingMode: "stable",
+    lastOrientationUiAt: 0,
     demoRelAltOffset: 0,
     isDemoMode: false,
     locationSource: "fallback",
@@ -77,6 +80,12 @@ const App = (() => {
     btnDemo.addEventListener("click", startDemo);
     btnLocate.addEventListener("click", locateSun);
     btnFollow.addEventListener("click", toggleFollow);
+    trackingMode.addEventListener("change", () => {
+      _state.trackingMode = trackingMode.value;
+      ARRenderer.setMode(_state.trackingMode);
+      ARRenderer.reset();
+    });
+    ARRenderer.setMode(_state.trackingMode);
 
     loadSavedLocation();
 
@@ -607,9 +616,15 @@ const App = (() => {
   function onOrientationUpdate(state) {
     if (_state.isDemoMode) return;
 
-    const camBeta = state.beta - 90;
+    const now = Date.now();
+    if (now - _state.lastOrientationUiAt < 500) return;
+    _state.lastOrientationUiAt = now;
+
+    const stableState = Sensors.getStableState();
+    const camBeta = stableState.beta - 90;
+    const quality = getSensorQualityText(stableState.jitter);
     deviceOrient.textContent =
-      `Sensor: ${Math.round(state.alpha)}° a, ${Math.round(state.beta)}° b | Cam elev: ${Math.round(camBeta)}°`;
+      `Apunte: ${Math.round(stableState.heading)}\u00b0 | Elev: ${Math.round(camBeta)}\u00b0 | ${quality}`;
     sensorStatus.textContent =
       (_state.cameraReady ? "Camara OK | " : "Camara NO | ") + "Sensores OK";
   }
@@ -623,8 +638,8 @@ const App = (() => {
       beta = (_state._targetSunPos ? _state._targetSunPos.altitude : 0) + (_state.demoRelAltOffset || 0);
     } else {
       // Sensores reales: convertir sensor.beta (0=tumbado, 90=vertical) a elevacion camara
-      const sensorState = Sensors.getState();
-      heading = Sensors.getTrueHeading();
+      const sensorState = Sensors.getStableState();
+      heading = sensorState.heading;
       // sensor.beta=90° -> camara al horizonte (0°). sensor.beta=0° -> camara al suelo (-90°)
       beta = sensorState.beta - 90;
     }
@@ -684,6 +699,13 @@ const App = (() => {
     } catch (e) {
       console.warn("No se pudo guardar la ubicacion:", e);
     }
+  }
+
+  function getSensorQualityText(jitter) {
+    if (!Number.isFinite(jitter)) return "sensor iniciando";
+    if (jitter < 1.5) return "estable";
+    if (jitter < 5) return "movimiento leve";
+    return "sensor inestable";
   }
 
   function azimuthToText(az) {

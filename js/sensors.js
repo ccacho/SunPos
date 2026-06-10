@@ -11,6 +11,10 @@ const Sensors = (() => {
     beta: 0,
     gamma: 0,
     heading: 0,
+    stableHeading: 0,
+    stableBeta: 0,
+    stableGamma: 0,
+    jitter: 0,
     latitude: null,
     longitude: null,
     accuracy: null,
@@ -46,9 +50,72 @@ const Sensors = (() => {
         _state.isAbsolute = false;
       }
 
+      _updateStabilizedOrientation();
       _notify("orientation");
       _notify("compass");
     };
+  }
+
+  function _angleDiff(target, current) {
+    return ((((target - current) % 360) + 540) % 360) - 180;
+  }
+
+  function _smoothAngle(current, target, alpha) {
+    return (current + _angleDiff(target, current) * alpha + 360) % 360;
+  }
+
+  function _smoothValue(current, target, alpha) {
+    return current + (target - current) * alpha;
+  }
+
+  function _getRawTrueHeading() {
+    if (_state.latitude === null || _state.longitude === null) {
+      return _state.heading;
+    }
+    if (_state.isAbsolute) {
+      return _state.heading;
+    }
+    const decl = _getMagneticDeclination(
+      _state.latitude,
+      _state.longitude,
+      new Date().getFullYear(),
+    );
+    return (_state.heading + decl + 360) % 360;
+  }
+
+  function _updateStabilizedOrientation() {
+    const rawHeading = _getRawTrueHeading();
+    const rawBeta = _state.beta;
+    const rawGamma = _state.gamma;
+
+    if (!_state._stableReady) {
+      _state.stableHeading = rawHeading;
+      _state.stableBeta = rawBeta;
+      _state.stableGamma = rawGamma;
+      _state.jitter = 0;
+      _state._stableReady = true;
+      return;
+    }
+
+    const headingDelta = Math.abs(_angleDiff(rawHeading, _state.stableHeading));
+    const betaDelta = Math.abs(rawBeta - _state.stableBeta);
+    const gammaDelta = Math.abs(rawGamma - _state.stableGamma);
+    const motion = Math.max(headingDelta, betaDelta, gammaDelta);
+
+    const alpha = motion > 18 ? 0.34 : motion > 7 ? 0.16 : 0.035;
+    const deadband = motion > 7 ? 0.05 : 0.75;
+
+    if (headingDelta > deadband) {
+      _state.stableHeading = _smoothAngle(_state.stableHeading, rawHeading, alpha);
+    }
+    if (betaDelta > deadband) {
+      _state.stableBeta = _smoothValue(_state.stableBeta, rawBeta, alpha);
+    }
+    if (gammaDelta > deadband) {
+      _state.stableGamma = _smoothValue(_state.stableGamma, rawGamma, alpha);
+    }
+
+    _state.jitter = _smoothValue(_state.jitter, motion, 0.08);
   }
 
   function start() {
@@ -154,18 +221,23 @@ const Sensors = (() => {
   }
 
   function getTrueHeading() {
-    if (_state.latitude === null || _state.longitude === null) {
-      return _state.heading;
-    }
-    if (_state.isAbsolute) {
-      return _state.heading;
-    }
-    const decl = _getMagneticDeclination(
-      _state.latitude,
-      _state.longitude,
-      new Date().getFullYear(),
-    );
-    return (_state.heading + decl + 360) % 360;
+    return _getRawTrueHeading();
+  }
+
+  function getStableHeading() {
+    return _state._stableReady ? _state.stableHeading : getTrueHeading();
+  }
+
+  function getStableState() {
+    return {
+      ..._state,
+      heading: getStableHeading(),
+      beta: _state._stableReady ? _state.stableBeta : _state.beta,
+      gamma: _state._stableReady ? _state.stableGamma : _state.gamma,
+      rawHeading: getTrueHeading(),
+      rawBeta: _state.beta,
+      rawGamma: _state.gamma,
+    };
   }
 
   function _notify(type) {
@@ -202,5 +274,15 @@ const Sensors = (() => {
     return this;
   }
 
-  return { start, stop, on, off, getState, getTrueHeading, requestPermission };
+  return {
+    start,
+    stop,
+    on,
+    off,
+    getState,
+    getStableState,
+    getTrueHeading,
+    getStableHeading,
+    requestPermission,
+  };
 })();
