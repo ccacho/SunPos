@@ -20,6 +20,7 @@ const Sensors = (() => {
 
   let _watchId = null;
   let _orientHandler = null;
+  let _orientationListening = false;
   let _started = false;
 
   /**
@@ -70,11 +71,14 @@ const Sensors = (() => {
 
     // DeviceOrientation
     if ("DeviceOrientationEvent" in window) {
-      _orientHandler = _makeHandler();
+      if (!_orientHandler) {
+        _orientHandler = _makeHandler();
+      }
 
       // iOS 13+ requiere permiso explicito - se llama desde app.js antes
       if (typeof DeviceOrientationEvent.requestPermission !== "function") {
         window.addEventListener("deviceorientation", _orientHandler);
+        _orientationListening = true;
       }
 
       // Android: deviceorientationabsolute cuando esta disponible
@@ -96,7 +100,10 @@ const Sensors = (() => {
           if (!_orientHandler) {
             _orientHandler = _makeHandler();
           }
-          window.addEventListener("deviceorientation", _orientHandler);
+          if (!_orientationListening) {
+            window.addEventListener("deviceorientation", _orientHandler);
+            _orientationListening = true;
+          }
           return true;
         }
         console.warn("DeviceOrientation permission denied");
@@ -190,6 +197,7 @@ const Sensors = (() => {
       window.removeEventListener("deviceorientation", _orientHandler);
       window.removeEventListener("deviceorientationabsolute", _orientHandler);
     }
+    _orientationListening = false;
     _listeners = { orientation: [], location: [], compass: [] };
     return this;
   }

@@ -34,7 +34,18 @@ const ARRenderer = (() => {
   let _deviceHeading = 0;
   let _deviceBeta = 0;
 
-  const DEG = Math.PI / 180;
+  let _smooth = {
+    azDiff: null,
+    relAlt: null,
+    heading: null,
+    beta: null,
+  };
+
+  let _ui = {
+    sunVisible: false,
+    edgeVisible: false,
+    dir: { up: false, down: false, left: false, right: false },
+  };
 
   function calibrateCamera() {
     _cam.width = window.innerWidth;
@@ -55,12 +66,13 @@ const ARRenderer = (() => {
   function render() {
     calibrateCamera();
 
-    const azDiff = ((((_sunAzimuth - _deviceHeading) % 360) + 540) % 360) - 180;
-    const relAlt = _sunAltitude - _deviceBeta;
+    const azDiff = smoothValue("azDiff", angleDiff(_sunAzimuth, _deviceHeading), 0.18);
+    const relAlt = smoothValue("relAlt", _sunAltitude - _deviceBeta, 0.18);
     const sobreHorizonte = _sunAltitude > -0.5;
 
     // Proyectar a coordenadas de pantalla (sin clampear)
-    const { x, y, onScreen } = projectSunToScreen(azDiff, relAlt);
+    const { x, y } = projectSunToScreen(azDiff, relAlt);
+    const onScreen = isOnScreenStable(x, y, sobreHorizonte);
 
     // ===== 1. CIRCULO DEL SOL =====
     // Solo se muestra cuando esta DENTRO de la pantalla y sobre el horizonte
@@ -79,13 +91,14 @@ const ARRenderer = (() => {
     // ===== 1.5. LINEA DEL HORIZONTE =====
     // Se mueve con la inclinacion de la camara
     if (true) {
-      const horY = _cam.height / 2 + (_deviceBeta / (_cam.vFOV / 2)) * _cam.height;
+      const beta = smoothValue("beta", _deviceBeta, 0.18);
+      const horY = _cam.height / 2 + (beta / (_cam.vFOV / 2)) * _cam.height;
       horizonLine.classList.remove("hidden");
       horizonLine.style.top = horY + "px";
       horizonLine.style.display = "block";
     }
 
-        // ===== 2. INDICADOR EN EL BORDE =====
+    // ===== 2. INDICADOR EN EL BORDE =====
     // Muestra una flecha en el borde de la pantalla indicando donde esta el sol
     // cuando esta fuera de la pantalla
     if (!onScreen || !sobreHorizonte) {
@@ -104,15 +117,16 @@ const ARRenderer = (() => {
         }
       } else {
         horizonIndicator.classList.add("hidden");
-    horizonLine.classList.add("hidden");
+        _ui.edgeVisible = false;
       }
     } else {
       horizonIndicator.classList.add("hidden");
+      _ui.edgeVisible = false;
     }
 
     // ===== 3. FLECHAS DIRECCIONALES =====
     // Aparecen cuando el sol no esta centrado
-    const dir = getDirectionFromDevice(azDiff, relAlt);
+    const dir = getStableDirection(azDiff, relAlt);
     const needsArrows = dir.up || dir.down || dir.left || dir.right;
     if (needsArrows) {
       searchIndicator.classList.remove("hidden");
@@ -127,7 +141,43 @@ const ARRenderer = (() => {
     }
 
     // ===== 4. BRUJULA =====
-    compassNeedle.style.transform = `rotate(${-_deviceHeading}deg)`;
+    const heading = smoothAngle("heading", _deviceHeading, 0.18);
+    compassNeedle.style.transform = `rotate(${-heading}deg)`;
+  }
+
+  function angleDiff(target, current) {
+    return ((((target - current) % 360) + 540) % 360) - 180;
+  }
+
+  function smoothValue(key, value, alpha) {
+    if (_smooth[key] === null || !Number.isFinite(_smooth[key])) {
+      _smooth[key] = value;
+      return value;
+    }
+    _smooth[key] += (value - _smooth[key]) * alpha;
+    return _smooth[key];
+  }
+
+  function smoothAngle(key, angle, alpha) {
+    if (_smooth[key] === null || !Number.isFinite(_smooth[key])) {
+      _smooth[key] = angle;
+      return angle;
+    }
+    _smooth[key] = (_smooth[key] + angleDiff(angle, _smooth[key]) * alpha + 360) % 360;
+    return _smooth[key];
+  }
+
+  function isOnScreenStable(x, y, sobreHorizonte) {
+    const margin = _ui.sunVisible ? 70 : 12;
+    const altitudeLimit = _ui.sunVisible ? -1.5 : -0.5;
+    _ui.sunVisible =
+      _sunAltitude > altitudeLimit &&
+      (sobreHorizonte || _ui.sunVisible) &&
+      x >= -margin &&
+      x <= _cam.width + margin &&
+      y >= -margin &&
+      y <= _cam.height + margin;
+    return _ui.sunVisible;
   }
 
   /**
@@ -141,14 +191,7 @@ const ARRenderer = (() => {
     let x = _cam.width / 2 + xRatio * _cam.width;
     let y = _cam.height / 2 - yRatio * _cam.height;
 
-    const margin = 20;
-    const onScreen =
-      x >= -margin &&
-      x <= _cam.width + margin &&
-      y >= -margin &&
-      y <= _cam.height + margin;
-
-    return { x, y, onScreen };
+    return { x, y };
   }
 
   /**
@@ -156,8 +199,17 @@ const ARRenderer = (() => {
    * Devuelve {x, y, arrow} o null si esta detras.
    */
   function projectToEdge(azDiff, relAlt) {
-    if (Math.abs(azDiff) > 100) return null;
-    if (Math.abs(relAlt) > 60) return null;
+    const azLimit = _ui.edgeVisible ? 125 : 105;
+    const altLimit = _ui.edgeVisible ? 80 : 65;
+    if (Math.abs(azDiff) > azLimit) {
+      _ui.edgeVisible = false;
+      return null;
+    }
+    if (Math.abs(relAlt) > altLimit) {
+      _ui.edgeVisible = false;
+      return null;
+    }
+    _ui.edgeVisible = true;
 
     const xRatio = azDiff / _cam.hFOV;
     const yRatio = relAlt / (_cam.vFOV / 2);
@@ -216,14 +268,14 @@ const ARRenderer = (() => {
     return { x, y, arrow: arrowMap[edge] };
   }
 
-  function getDirectionFromDevice(azDiff, relAlt) {
-    const threshold = 8;
-    return {
-      up: relAlt > threshold,
-      down: relAlt < -threshold,
-      left: azDiff < -threshold,
-      right: azDiff > threshold,
-    };
+  function getStableDirection(azDiff, relAlt) {
+    const enter = 10;
+    const exit = 5;
+    _ui.dir.up = _ui.dir.up ? relAlt > exit : relAlt > enter;
+    _ui.dir.down = _ui.dir.down ? relAlt < -exit : relAlt < -enter;
+    _ui.dir.left = _ui.dir.left ? azDiff < -exit : azDiff < -enter;
+    _ui.dir.right = _ui.dir.right ? azDiff > exit : azDiff > enter;
+    return { ..._ui.dir };
   }
 
   function showArrows(dir) {
@@ -241,6 +293,12 @@ const ARRenderer = (() => {
     sunOverlay.classList.add("hidden");
     searchIndicator.classList.add("hidden");
     horizonIndicator.classList.add("hidden");
+    _smooth = { azDiff: null, relAlt: null, heading: null, beta: null };
+    _ui = {
+      sunVisible: false,
+      edgeVisible: false,
+      dir: { up: false, down: false, left: false, right: false },
+    };
   }
 
   calibrateCamera();

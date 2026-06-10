@@ -97,9 +97,10 @@ const SunCalc = (() => {
     eot = eot * 4; // convertir a minutos de tiempo
 
     // Tiempo solar verdadero (minutos desde medianoche)
+    const utcOffset = -date.getTimezoneOffset(); // minutos, positivo = este
     const timeMinutes =
       date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
-    const trueSolarTime = timeMinutes + 4 * lon + eot;
+    const trueSolarTime = timeMinutes + 4 * lon + eot - utcOffset;
 
     // Angulo horario (grados)
     const HA = ((trueSolarTime / 60 - 12) * 15 + 360) % 360;

@@ -38,6 +38,7 @@ const App = (() => {
     sensorsStarted: false,
     demoRelAltOffset: 0,
     isDemoMode: false,
+    locationSource: "fallback",
     // Orientacion simulada para modo demo
     demoHeading: 0, // 0-360, hacia donde apunta el dispositivo
     demoDragging: null, // null, 'azimuth', 'elevation'
@@ -77,6 +78,8 @@ const App = (() => {
     btnLocate.addEventListener("click", locateSun);
     btnFollow.addEventListener("click", toggleFollow);
 
+    loadSavedLocation();
+
     // Mostrar overlay de inicio
     permissionOverlay.classList.remove("hidden");
 
@@ -90,17 +93,12 @@ const App = (() => {
     btnStart.textContent = "Iniciando...";
     btnDemo.disabled = true;
 
-    // 1. Permiso orientacion iOS
-    try {
-      if (
-        typeof DeviceOrientationEvent !== "undefined" &&
-        typeof DeviceOrientationEvent.requestPermission === "function"
-      ) {
-        await DeviceOrientationEvent.requestPermission();
-      }
-    } catch (e) {
-      console.warn("DeviceOrientation permission:", e);
-    }
+    // 1. Sensores orientacion. En iOS el permiso debe pedirse desde este gesto.
+    Sensors.start();
+    _state.sensorsStarted = true;
+    Sensors.on("location", onLocationUpdate);
+    Sensors.on("orientation", onOrientationUpdate);
+    const orientationGranted = await Sensors.requestPermission();
 
     // 2. GPS
     if ("geolocation" in navigator) {
@@ -108,6 +106,7 @@ const App = (() => {
         (pos) => {
           _state.latitude = pos.coords.latitude;
           _state.longitude = pos.coords.longitude;
+          saveLocation(pos.coords.latitude, pos.coords.longitude, "GPS");
           locationInfo.textContent =
             `Ubicacion: ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}` +
             (pos.coords.accuracy
@@ -154,16 +153,14 @@ const App = (() => {
     }
 
     // 4. Sensores orientacion
-    Sensors.start();
-    _state.sensorsStarted = true;
-    Sensors.on("location", onLocationUpdate);
-    Sensors.on("orientation", onOrientationUpdate);
+    // Ya se arrancaron al inicio para respetar el gesto de usuario en iOS.
 
     // 5. UI final
     permissionOverlay.classList.add("hidden");
     controlPanel.classList.add("open");
     sensorStatus.textContent =
-      (_state.cameraReady ? "Camara OK | " : "Camara NO | ") + "Sensores OK";
+      (_state.cameraReady ? "Camara OK | " : "Camara NO | ") +
+      (orientationGranted ? "Sensores OK" : "Sensores sin permiso");
 
     btnStart.disabled = false;
     btnStart.textContent = "Comenzar con camara";
@@ -186,6 +183,7 @@ const App = (() => {
           const lon = pos.coords.longitude;
           _state.latitude = lat;
           _state.longitude = lon;
+          saveLocation(lat, lon, "GPS");
           const precision = pos.coords.accuracy
             ? ` ±${Math.round(pos.coords.accuracy)}m`
             : "";
@@ -259,6 +257,7 @@ const App = (() => {
 
           _state.latitude = lat;
           _state.longitude = lon;
+          saveLocation(lat, lon, "IP");
           locationInfo.textContent = `Ubicacion estimada: ${lat.toFixed(4)}, ${lon.toFixed(4)}${ciudad ? " (" + ciudad + ")" : ""}`;
           sensorStatus.textContent = "Ubicacion por IP";
           if (callback) callback(lat, lon, "IP");
@@ -276,6 +275,7 @@ const App = (() => {
     const lon = -3.7038;
     _state.latitude = lat;
     _state.longitude = lon;
+    _state.locationSource = "fallback";
     locationInfo.textContent =
       "No se pudo obtener ubicacion. Usando Madrid como referencia. Cambia a coordenadas manuales.";
     sensorStatus.textContent = "Ubicacion: Madrid (fallback)";
@@ -455,6 +455,7 @@ const App = (() => {
       "Usando ubicacion por defecto (Madrid). Introduce coordenadas manuales o activa GPS.";
     _state.latitude = 40.4168;
     _state.longitude = -3.7038;
+    _state.locationSource = "fallback";
   }
 
   // ===== LOCALIZAR SOL =====
@@ -489,6 +490,7 @@ const App = (() => {
     const calcular = (lat, lon, fuente) => {
       _state.latitude = lat;
       _state.longitude = lon;
+      saveLocation(lat, lon, fuente);
 
       const pos = SunCalc.getPosition(targetDate, lat, lon);
       const times = SunCalc.getTimes(targetDate, lat, lon);
@@ -595,6 +597,7 @@ const App = (() => {
     if (state.latitude !== null && state.longitude !== null) {
       _state.latitude = state.latitude;
       _state.longitude = state.longitude;
+      saveLocation(state.latitude, state.longitude, "GPS");
       locationInfo.textContent =
         `Ubicacion: ${state.latitude.toFixed(4)}, ${state.longitude.toFixed(4)}` +
         (state.accuracy ? ` (±${Math.round(state.accuracy)}m)` : "");
@@ -650,6 +653,37 @@ const App = (() => {
     ARRenderer.update(pos.azimuth, pos.altitude, heading, beta);
 
     _state.animFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  function loadSavedLocation() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("sunpos.location") || "null");
+      if (!saved || typeof saved.lat !== "number" || typeof saved.lon !== "number") {
+        return;
+      }
+      _state.latitude = saved.lat;
+      _state.longitude = saved.lon;
+      _state.locationSource = saved.source || "guardada";
+      latInput.value = String(saved.lat);
+      lonInput.value = String(saved.lon);
+      locationInfo.textContent = `Ultima ubicacion: ${saved.lat.toFixed(4)}, ${saved.lon.toFixed(4)} (${_state.locationSource})`;
+    } catch (e) {
+      console.warn("No se pudo leer la ubicacion guardada:", e);
+    }
+  }
+
+  function saveLocation(lat, lon, source) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    _state.locationSource = source;
+    if (source === "fallback") return;
+    try {
+      localStorage.setItem(
+        "sunpos.location",
+        JSON.stringify({ lat, lon, source, savedAt: Date.now() }),
+      );
+    } catch (e) {
+      console.warn("No se pudo guardar la ubicacion:", e);
+    }
   }
 
   function azimuthToText(az) {
